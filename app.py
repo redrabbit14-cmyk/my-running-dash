@@ -3,7 +3,7 @@ from notion_client import Client
 import pandas as pd
 
 # 1. 노션 보안 키 설정 (따옴표 필수!)
-NOTION_TOKEN = "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"
+NOTION_TOKEN = "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"
 DATABASE_ID = "2d18ddf6369c8077a12ad817fde87b5b"
 
 # 2. 데이터 불러오기 함수
