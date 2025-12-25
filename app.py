@@ -2,7 +2,7 @@ import streamlit as st
 from notion_client import Client
 import pandas as pd
 
-# 1. 노션 보안 키 설정
+# 1. 노션 보안 키 설정 (따옴표 필수!)
 NOTION_TOKEN = "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"
 DATABASE_ID = "2d18ddf6369c8077a12ad817fde87b5b"
 
@@ -10,11 +10,12 @@ notion = Client(auth=NOTION_TOKEN)
 
 # 2. 데이터 불러오기 함수
 def fetch_data():
-    results = notion.databases.query(database_id=DATABASE_ID).get("results", [])
+    # .get("results") 대신 ["results"]를 사용하는 최신 방식으로 수정
+    response = notion.databases.query(database_id=DATABASE_ID)
+    results = response["results"]
     data = []
     for row in results:
         props = row["properties"]
-        # 각 필드명은 노션 표의 제목과 일치해야 합니다
         data.append({
             "이름": props["이름"]["title"][0]["text"]["content"] if props["이름"]["title"] else "제목없음",
             "날짜": props["날짜"]["date"]["start"] if props["날짜"]["date"] else "",
@@ -30,16 +31,14 @@ st.title("🏃‍♂️ 우리 크루 훈련 실시간 현황")
 
 try:
     df = fetch_data()
-    
-    # 상단 요약 수치 (Metric)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("이번 주 총 거리", f"{df['거리'].sum():.1f} km")
-    c2.metric("최고 고도", f"{df['고도'].max()} m")
-    c3.metric("참여 러너 수", f"{df['러너'].nunique()} 명")
-
-    # 데이터 표
-    st.subheader("📊 상세 기록")
-    st.dataframe(df, use_container_width=True)
-
+    if not df.empty:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("이번 주 총 거리", f"{df['거리'].sum():.1f} km")
+        c2.metric("최고 고도", f"{df['고도'].max()} m")
+        c3.metric("참여 러너 수", f"{df['러너'].nunique()} 명")
+        st.subheader("📊 상세 기록")
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.warning("노션 데이터베이스에 데이터가 없습니다.")
 except Exception as e:
     st.error(f"연결 오류 발생: {e}")
