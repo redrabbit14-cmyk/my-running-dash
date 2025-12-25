@@ -10,7 +10,7 @@ notion = Client(auth=NOTION_TOKEN)
 
 # 2. 데이터 불러오기 함수
 def fetch_data():
-    results = notion.databases.query(database_id=DATABASE_ID).get("results")
+    results = notion.databases.query(database_id=DATABASE_ID).get("results", [])
     data = []
     for row in results:
         props = row["properties"]
