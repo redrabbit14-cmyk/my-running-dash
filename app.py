@@ -9,9 +9,6 @@ import requests
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 DATABASE_ID = os.environ.get("DATABASE_ID")
 
-# OpenWeatherMap API 키 (st.secrets 사용 권장)
-WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")  # .streamlit/secrets.toml에 추가
-
 # 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", layout="wide", initial_sidebar_state="collapsed")
 
@@ -207,42 +204,6 @@ def fetch_notion_data():
         st.error(f"데이터 로드 실패: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=1800)  # 30분 캐싱
-def get_weather_data(city="Busan", api_key=None):
-    """OpenWeatherMap API로 부산 해운대 7일 날씨 가져오기"""
-    if not api_key:
-        return None
-    
-    try:
-        url = f"https://api.openweathermap.org/data/2.5/forecast?q={city},KR&appid={api_key}&units=metric&lang=ko"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            weather_list = []
-            
-            # 오늘부터 7일치 날씨 추출
-            for item in data['list'][:8*5]:  # 5일치 (3시간 단위 8개씩)
-                dt = datetime.fromtimestamp(item['dt'])
-                day_name = ['월','화','수','목','금','토','일'][dt.weekday()]
-                temp = f"{item['main']['temp']:.0f}°"
-                desc = item['weather'][0]['description']
-                icon_map = {
-                    '맑음': '☀️', '맑음': '☀️', 
-                    '구름': '☁️', '흐림': '☁️',
-                    '비': '🌧️', '소나기': '🌦️',
-                    '눈': '❄️', '안개': '🌫️'
-                }
-                icon = icon_map.get(desc, '🌤️')
-                
-                weather_list.append((day_name, icon, temp))
-            
-            return weather_list[:7]  # 정확히 7일치만
-        return None
-    except Exception as e:
-        st.error(f"날씨 데이터 로드 실패: {e}")
-        return None
-
 def calculate_week_data(df, weeks_ago=0):
     if df.empty:
         return pd.DataFrame()
@@ -291,7 +252,6 @@ def get_ai_recommendation(crew_data):
 
 # 데이터 로드
 df = fetch_notion_data()
-weather_data = get_weather_data("Busan", WEATHER_API_KEY)
 
 # ========== 상단: 크루 현황 ==========
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -305,40 +265,23 @@ st.markdown('<div class="notice-box">부산 낙동강 마라톤 - 신청: 1/20~2
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. 주간 날씨 (실제 API 데이터로 교체)
-st.markdown('<div class="subsection-title">🌤️ 주간 날씨 (해운대)</div>', unsafe_allow_html=True)
-
-if weather_data:
-    weather_html = '<div style="display:flex;gap:4px;justify-content:space-between;">'
-    for day, icon, temp in weather_data:
-        weather_html += f'''
-            <div class="weather-card" style="flex:1;min-width:0;">
-                <div style="font-weight:600;color:#475569;font-size:10px;">{day}</div>
-                <div style="font-size:20px;margin:2px 0;">{icon}</div>
-                <div style="font-weight:700;color:#1e293b;font-size:11px;">{temp}</div>
-            </div>
-        '''
-    weather_html += '</div>'
-    st.markdown(weather_html, unsafe_allow_html=True)
-    st.caption("🌐 OpenWeatherMap 실시간 데이터")
-else:
-    # API 키 없으면 기존 하드코딩 데이터 표시
-    fallback_weather = [
-        ('월', '☀️', '5°'), ('화', '☁️', '3°'), ('수', '🌧️', '2°'),
-        ('목', '☁️', '4°'), ('금', '☀️', '6°'), ('토', '☀️', '7°'), ('일', '⛅', '5°')
-    ]
-    weather_html = '<div style="display:flex;gap:4px;justify-content:space-between;">'
-    for day, icon, temp in fallback_weather:
-        weather_html += f'''
-            <div class="weather-card" style="flex:1;min-width:0;">
-                <div style="font-weight:600;color:#475569;font-size:10px;">{day}</div>
-                <div style="font-size:20px;margin:2px 0;">{icon}</div>
-                <div style="font-weight:700;color:#1e293b;font-size:11px;">{temp}</div>
-            </div>
-        '''
-    weather_html += '</div>'
-    st.markdown(weather_html, unsafe_allow_html=True)
-    st.caption("⚠️ API 키 설정 시 실시간 날씨 표시 (환경변수 WEATHER_API_KEY)")
+# 2. 주간 날씨 (7일 가로 배치)
+st.markdown('<div class="subsection-title">🌤️ 주간 날씨</div>', unsafe_allow_html=True)
+weather_data = [
+    ('월', '☀️', '5°'), ('화', '☁️', '3°'), ('수', '🌧️', '2°'),
+    ('목', '☁️', '4°'), ('금', '☀️', '6°'), ('토', '☀️', '7°'), ('일', '⛅', '5°')
+]
+weather_html = '<div style="display:flex;gap:4px;justify-content:space-between;">'
+for day, icon, temp in weather_data:
+    weather_html += f'''
+        <div class="weather-card" style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#475569;font-size:10px;">{day}</div>
+            <div style="font-size:20px;margin:2px 0;">{icon}</div>
+            <div style="font-weight:700;color:#1e293b;font-size:11px;">{temp}</div>
+        </div>
+    '''
+weather_html += '</div>'
+st.markdown(weather_html, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -376,9 +319,189 @@ if not df.empty:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 나머지 코드 (크루 컨디션, Insight & Fun, AI 추천)는 동일...
-# [기존 코드 유지]
+# ========== 중단: 크루 컨디션 (4명 빽빽하게) ==========
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.markdown('<div class="section-title">👥 크루 컨디션</div>', unsafe_allow_html=True)
 
-if __name__ == "__main__":
-    # 크루 컨디션 섹션 등 나머지 코드도 동일하게 유지됩니다.
-    pass
+if not df.empty:
+    crew_members = df['러너'].unique()[:4]
+    crew_cols = st.columns(4)
+    
+    crew_data_for_ai = []
+    
+    for idx, member in enumerate(crew_members):
+        with crew_cols[idx]:
+            member_data = df[df['러너'] == member]
+            this_week_data = calculate_week_data(member_data, 0)
+            last_week_data = calculate_week_data(member_data, 1)
+            
+            week_dist = this_week_data['거리'].sum()
+            prev_week_dist = last_week_data['거리'].sum()
+            
+            if prev_week_dist > 0:
+                dist_change = ((week_dist - prev_week_dist) / prev_week_dist) * 100
+            else:
+                dist_change = 0
+            
+            avg_pace = "5:30"
+            if not this_week_data.empty and this_week_data['페이스'].notna().any():
+                paces = this_week_data['페이스'].dropna()
+                if len(paces) > 0:
+                    avg_pace = paces.mode()[0] if len(paces.mode()) > 0 else paces.iloc[0]
+            
+            last_run = this_week_data['날짜'].max() if not this_week_data.empty else None
+            rest_days = (datetime.now() - last_run).days if last_run and pd.notna(last_run) else 0
+            
+            # AI용 데이터 저장
+            crew_data_for_ai.append({
+                'name': member,
+                'distance': week_dist,
+                'pace': avg_pace,
+                'rest_days': rest_days
+            })
+            
+            trend_icon = "📈" if dist_change >= 0 else "📉"
+            trend_color = "#10b981" if dist_change >= 0 else "#ef4444"
+            
+            # 사진 URL 가져오기
+            photo_url = None
+            if not member_data.empty and '사진' in member_data.columns:
+                recent_photos = member_data[member_data['사진'].notna()].sort_values('날짜', ascending=False)
+                if not recent_photos.empty:
+                    photo_url = recent_photos.iloc[0]['사진']
+            
+            if photo_url:
+                avatar_html = f'<img src="{photo_url}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.1);">'
+            else:
+                avatar_html = '<div class="crew-avatar">👤</div>'
+            
+            card_html = f"""
+            <div class="crew-card">
+                {avatar_html}
+                <h3 style="font-size:15px;font-weight:700;color:#1f2937;margin:8px 0 10px 0;">{member}</h3>
+                <div class="crew-stat-box" style="background:#dbeafe;">
+                    <div style="font-size:10px;color:#6b7280;">주간거리</div>
+                    <div style="font-size:14px;font-weight:700;color:#1e40af;">{week_dist:.1f}km</div>
+                </div>
+                <div class="crew-stat-box">
+                    <div style="font-size:10px;color:#6b7280;">전주대비</div>
+                    <div style="font-size:12px;font-weight:700;color:{trend_color};">{trend_icon} {dist_change:+.0f}%</div>
+                </div>
+                <div class="crew-stat-box" style="background:#f3e8ff;">
+                    <div style="font-size:10px;color:#6b7280;">평균속도</div>
+                    <div style="font-size:12px;font-weight:700;color:#7c3aed;">{avg_pace}/km</div>
+                </div>
+                <div class="crew-stat-box" style="background:#fed7aa;">
+                    <div style="font-size:10px;color:#6b7280;">연속휴식</div>
+                    <div style="font-size:12px;font-weight:700;color:#ea580c;">{rest_days}일</div>
+                </div>
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
+    
+    # AI용 데이터를 세션에 저장
+    st.session_state['crew_data_for_ai'] = crew_data_for_ai
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ========== 하단: Insight & Fun ==========
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.markdown('<div class="section-title">🎉 Insight & Fun</div>', unsafe_allow_html=True)
+
+if not df.empty:
+    this_week = calculate_week_data(df, 0)
+    
+    # 사실상 풀 - 가장 길게 뛴 사람 1명
+    if not this_week.empty and this_week['거리'].sum() > 0:
+        longest_run = this_week.loc[this_week['거리'].idxmax()]
+        st.markdown(f'''
+            <div class="insight-box insight-full">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:28px;">🏃‍♂️</span>
+                    <div>
+                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0 0 4px 0;">사실상 풀</h3>
+                        <p style="margin:0;color:#374151;font-size:14px;">
+                            <b style='color:#10b981;'>{longest_run['러너']}</b> {longest_run['거리']:.1f}km ({longest_run['날짜'].strftime('%m/%d')})
+                        </p>
+                    </div>
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
+    
+    # 사실상 등산 - 가장 높게 오른 사람 1명
+    if not this_week.empty and this_week['고도'].sum() > 0:
+        top_climb = this_week.loc[this_week['고도'].idxmax()]
+        st.markdown(f'''
+            <div class="insight-box insight-climb">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:28px;">⛰️</span>
+                    <div>
+                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0 0 4px 0;">사실상 등산</h3>
+                        <p style="margin:0;color:#374151;font-size:14px;">
+                            <b style='color:#3b82f6;'>{top_climb['러너']}</b> {top_climb['고도']:.0f}m ({top_climb['날짜'].strftime('%m/%d')})
+                        </p>
+                    </div>
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
+    
+    # 사실상 우사인볼트 - 가장 빠른 페이스 1명
+    if '페이스' in this_week.columns:
+        paces_data = this_week[this_week['페이스'].notna()].copy()
+        if not paces_data.empty:
+            # 페이스를 시간으로 변환해서 비교 (예: "5:30" -> 330초)
+            def pace_to_seconds(pace_str):
+                try:
+                    if isinstance(pace_str, str) and ':' in pace_str:
+                        parts = pace_str.split(':')
+                        return int(parts[0]) * 60 + int(parts[1])
+                    return 999999
+                except:
+                    return 999999
+            
+            paces_data['페이스_초'] = paces_data['페이스'].apply(pace_to_seconds)
+            fastest = paces_data.loc[paces_data['페이스_초'].idxmin()]
+            
+            st.markdown(f'''
+                <div class="insight-box insight-speed">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="font-size:28px;">⚡</span>
+                        <div>
+                            <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0 0 4px 0;">사실상 우사인볼트</h3>
+                            <p style="margin:0;color:#374151;font-size:14px;">
+                                <b style='color:#a855f7;'>{fastest['러너']}</b> {fastest['페이스']}/km ({fastest['날짜'].strftime('%m/%d')})
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            ''', unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ========== AI 훈련 추천 ==========
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.markdown('<div class="ai-box">', unsafe_allow_html=True)
+
+st.markdown('<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><span style="font-size:24px;">✨</span><span class="section-title" style="margin:0;">AI 코치 훈련 추천</span></div>', unsafe_allow_html=True)
+
+if st.button("✨ 추천 받기"):
+    if 'crew_data_for_ai' in st.session_state:
+        with st.spinner("AI가 분석 중입니다..."):
+            recommendation = get_ai_recommendation(st.session_state['crew_data_for_ai'])
+            st.session_state['ai_recommendation'] = recommendation
+
+if 'ai_recommendation' in st.session_state:
+    st.markdown(f'''
+        <div style="background:white;border-radius:8px;padding:16px;margin-top:12px;border:2px solid #c4b5fd;">
+            <div style="line-height:1.8;color:#374151;white-space:pre-wrap;font-size:14px;">{st.session_state['ai_recommendation']}</div>
+        </div>
+    ''', unsafe_allow_html=True)
+else:
+    st.markdown('''
+        <div style="background:white;border-radius:8px;padding:30px;margin-top:12px;text-align:center;border:2px solid #e9d5ff;">
+            <span style="font-size:40px;display:block;margin-bottom:8px;">✨</span>
+            <p style="color:#6b7280;margin:0;font-size:13px;">위 버튼을 눌러 AI 코치의 맞춤형 훈련 추천을 받아보세요!</p>
+        </div>
+    ''', unsafe_allow_html=True)
+
+st.markdown('</div></div>', unsafe_allow_html=True)
