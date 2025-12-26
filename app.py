@@ -1,13 +1,20 @@
 import streamlit as st
 from notion_client import Client
 import pandas as pd
+import os
 
-# 1. 설정 (지금 복사한 최신 ntn_ 키를 정확히 넣어주세요)
-NOTION_TOKEN = "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"
-DATABASE_ID = "2d18ddf6369c8077a12ad817fde87b5b"
+# 1. 설정: 환경 변수(os.environ)에서 값을 가져옵니다.
+# 나중에 GitHub Settings에서 NOTION_TOKEN과 DATABASE_ID라는 이름으로 키를 등록할 예정입니다.
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
+DATABASE_ID = os.environ.get("DATABASE_ID")
 
 def fetch_data():
     try:
+        # 키가 설정되지 않았을 경우를 대비한 체크
+        if not NOTION_TOKEN or not DATABASE_ID:
+            st.error("설정 오류: API 키 또는 데이터베이스 ID가 환경 변수에 등록되지 않았습니다.")
+            return pd.DataFrame()
+
         notion = Client(auth=NOTION_TOKEN)
         response = notion.databases.query(database_id=DATABASE_ID)
         results = response.get("results", [])
@@ -20,7 +27,7 @@ def fetch_data():
             date = props.get("날짜", {}).get("date", {}).get("start", "")[:10] if props.get("날짜", {}).get("date") else ""
             runner = props.get("러너", {}).get("select", {}).get("name", "미정")
             
-            # 숫자 데이터(거리, 고도) 추출 - 컬럼명을 유연하게 체크
+            # 숫자 데이터(거리, 고도) 추출
             dist = 0
             for k, v in props.items():
                 if "거리" in k and v.get("number") is not None:
@@ -51,3 +58,5 @@ if not df.empty:
     st.divider()
     st.bar_chart(df.groupby("날짜")["거리"].sum())
     st.dataframe(df, use_container_width=True)
+else:
+    st.info("데이터베이스에서 가져올 기록이 없거나 연결 설정을 확인 중입니다.")
