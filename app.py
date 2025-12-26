@@ -340,34 +340,30 @@ if not df.empty:
             trend_icon = "📈" if dist_change >= 0 else "📉"
             trend_color = "#10b981" if dist_change >= 0 else "#ef4444"
             
-            st.markdown(f'''
-                <div class="crew-card">
-                    <div class="crew-avatar">👤</div>
-                    <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:16px;">{member}</h3>
-                    
-                    <div class="crew-stat-box" style="background:#dbeafe;">
-                        <div style="font-size:11px;color:#6b7280;">주간거리</div>
-                        <div style="font-size:16px;font-weight:700;color:#1e40af;">{week_dist:.1f} km</div>
-                    </div>
-                    
-                    <div class="crew-stat-box">
-                        <div style="font-size:11px;color:#6b7280;">전주 대비</div>
-                        <div style="font-size:14px;font-weight:700;color:{trend_color};">
-                            {trend_icon} {dist_change:+.0f}%
-                        </div>
-                    </div>
-                    
-                    <div class="crew-stat-box" style="background:#f3e8ff;">
-                        <div style="font-size:11px;color:#6b7280;">평균속도</div>
-                        <div style="font-size:14px;font-weight:700;color:#7c3aed;">{avg_pace}/km</div>
-                    </div>
-                    
-                    <div class="crew-stat-box" style="background:#fed7aa;">
-                        <div style="font-size:11px;color:#6b7280;">연속휴식</div>
-                        <div style="font-size:14px;font-weight:700;color:#ea580c;">{rest_days}일</div>
-                    </div>
+            # 크루원 카드 - HTML을 단일 블록으로 작성
+            card_html = f"""
+            <div class="crew-card">
+                <div class="crew-avatar">👤</div>
+                <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:16px;">{member}</h3>
+                <div class="crew-stat-box" style="background:#dbeafe;">
+                    <div style="font-size:11px;color:#6b7280;">주간거리</div>
+                    <div style="font-size:16px;font-weight:700;color:#1e40af;">{week_dist:.1f} km</div>
                 </div>
-            ''', unsafe_allow_html=True)
+                <div class="crew-stat-box">
+                    <div style="font-size:11px;color:#6b7280;">전주 대비</div>
+                    <div style="font-size:14px;font-weight:700;color:{trend_color};">{trend_icon} {dist_change:+.0f}%</div>
+                </div>
+                <div class="crew-stat-box" style="background:#f3e8ff;">
+                    <div style="font-size:11px;color:#6b7280;">평균속도</div>
+                    <div style="font-size:14px;font-weight:700;color:#7c3aed;">{avg_pace}/km</div>
+                </div>
+                <div class="crew-stat-box" style="background:#fed7aa;">
+                    <div style="font-size:11px;color:#6b7280;">연속휴식</div>
+                    <div style="font-size:14px;font-weight:700;color:#ea580c;">{rest_days}일</div>
+                </div>
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
 else:
     st.info("노션 데이터를 불러올 수 없습니다. NOTION_TOKEN과 DATABASE_ID를 확인해주세요.")
 
