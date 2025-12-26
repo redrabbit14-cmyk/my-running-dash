@@ -174,22 +174,31 @@ def fetch_notion_data():
             dist = 0
             elev = 0
             pace = None
+            photo_url = None
             
             for k, v in props.items():
                 if "거리" in k and v.get("number") is not None:
-                    dist = v["number"]
+                    # m 단위를 km로 변환
+                    dist = v["number"] / 1000 if v["number"] > 100 else v["number"]
                 if "고도" in k and v.get("number") is not None:
                     elev = v["number"]
                 if "페이스" in k or "pace" in k.lower():
                     if v.get("rich_text") and len(v["rich_text"]) > 0:
                         pace = v["rich_text"][0].get("plain_text", "")
+                # 사진 URL 추출 (파일 또는 URL 속성)
+                if ("사진" in k or "photo" in k.lower() or "이미지" in k or "image" in k.lower()):
+                    if v.get("files") and len(v["files"]) > 0:
+                        photo_url = v["files"][0].get("file", {}).get("url") or v["files"][0].get("external", {}).get("url")
+                    elif v.get("url"):
+                        photo_url = v["url"]
             
             data.append({
                 "날짜": date_val,
                 "러너": runner,
                 "거리": dist,
                 "고도": elev,
-                "페이스": pace
+                "페이스": pace,
+                "사진": photo_url
             })
         
         df = pd.DataFrame(data)
@@ -340,11 +349,24 @@ if not df.empty:
             trend_icon = "📈" if dist_change >= 0 else "📉"
             trend_color = "#10b981" if dist_change >= 0 else "#ef4444"
             
+            # 사진 URL 가져오기 (가장 최근 런의 사진 사용)
+            photo_url = None
+            if not member_data.empty and '사진' in member_data.columns:
+                recent_photos = member_data[member_data['사진'].notna()].sort_values('날짜', ascending=False)
+                if not recent_photos.empty:
+                    photo_url = recent_photos.iloc[0]['사진']
+            
+            # 아바타 표시 (사진 있으면 사진, 없으면 이모지)
+            if photo_url:
+                avatar_html = f'<img src="{photo_url}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:4px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.1);">'
+            else:
+                avatar_html = '<div class="crew-avatar">👤</div>'
+            
             # 크루원 카드 - HTML을 단일 블록으로 작성
             card_html = f"""
             <div class="crew-card">
-                <div class="crew-avatar">👤</div>
-                <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:16px;">{member}</h3>
+                {avatar_html}
+                <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin:12px 0 16px 0;">{member}</h3>
                 <div class="crew-stat-box" style="background:#dbeafe;">
                     <div style="font-size:11px;color:#6b7280;">주간거리</div>
                     <div style="font-size:16px;font-weight:700;color:#1e40af;">{week_dist:.1f} km</div>
