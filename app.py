@@ -265,22 +265,23 @@ st.markdown('<div class="notice-box">부산 낙동강 마라톤 - 신청: 1/20~2
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. 주간 날씨 (7일 빽빽하게)
+# 2. 주간 날씨 (7일 가로 배치)
 st.markdown('<div class="subsection-title">🌤️ 주간 날씨</div>', unsafe_allow_html=True)
-weather_cols = st.columns(7)
 weather_data = [
     ('월', '☀️', '5°'), ('화', '☁️', '3°'), ('수', '🌧️', '2°'),
     ('목', '☁️', '4°'), ('금', '☀️', '6°'), ('토', '☀️', '7°'), ('일', '⛅', '5°')
 ]
-for i, (day, icon, temp) in enumerate(weather_data):
-    with weather_cols[i]:
-        st.markdown(f'''
-            <div class="weather-card">
-                <div style="font-weight:600;color:#475569;font-size:10px;">{day}</div>
-                <div style="font-size:20px;margin:2px 0;">{icon}</div>
-                <div style="font-weight:700;color:#1e293b;font-size:11px;">{temp}</div>
-            </div>
-        ''', unsafe_allow_html=True)
+weather_html = '<div style="display:flex;gap:4px;justify-content:space-between;">'
+for day, icon, temp in weather_data:
+    weather_html += f'''
+        <div class="weather-card" style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#475569;font-size:10px;">{day}</div>
+            <div style="font-size:20px;margin:2px 0;">{icon}</div>
+            <div style="font-weight:700;color:#1e293b;font-size:11px;">{temp}</div>
+        </div>
+    '''
+weather_html += '</div>'
+st.markdown(weather_html, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -445,10 +446,22 @@ if not df.empty:
         ''', unsafe_allow_html=True)
     
     # 사실상 우사인볼트 - 가장 빠른 페이스 1명
-    if '페이스' in this_week.columns and this_week['페이스'].notna().any():
+    if '페이스' in this_week.columns:
         paces_data = this_week[this_week['페이스'].notna()].copy()
         if not paces_data.empty:
-            fastest = paces_data.loc[paces_data['페이스'].idxmin()]
+            # 페이스를 시간으로 변환해서 비교 (예: "5:30" -> 330초)
+            def pace_to_seconds(pace_str):
+                try:
+                    if isinstance(pace_str, str) and ':' in pace_str:
+                        parts = pace_str.split(':')
+                        return int(parts[0]) * 60 + int(parts[1])
+                    return 999999
+                except:
+                    return 999999
+            
+            paces_data['페이스_초'] = paces_data['페이스'].apply(pace_to_seconds)
+            fastest = paces_data.loc[paces_data['페이스_초'].idxmin()]
+            
             st.markdown(f'''
                 <div class="insight-box insight-speed">
                     <div style="display:flex;align-items:center;gap:10px;">
