@@ -291,7 +291,7 @@ if not df.empty:
             recent_photos = member_data[member_data['사진'].notna()].sort_values('날짜', ascending=False)
             if not recent_photos.empty:
                 photo_url = recent_photos.iloc[0]['사진']
-        
+
         with columns[idx]:
             if photo_url:
                 st.markdown(f'<img src="{photo_url}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.1);margin:0 auto;display:block;">', unsafe_allow_html=True)
