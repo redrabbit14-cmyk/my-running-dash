@@ -106,32 +106,46 @@ def fetch_notion_data():
             if date_prop.get("type") == "date" and date_prop.get("date"):
                 date_val = date_prop["date"].get("start", "")[:10]
             
-            # 러너
+            # 러너 (Select 타입)
             runner_prop = props.get("러너", {})
             runner = "Unknown"
             if runner_prop.get("type") == "select" and runner_prop.get("select"):
                 runner = runner_prop["select"].get("name", "Unknown")
             
-            dist, elev, pace, photo_url = 0, 0, None, None
+            # 거리 (실제 거리 또는 거리 컬럼 사용)
+            dist = 0
+            if props.get("실제 거리", {}).get("type") == "number":
+                dist_val = props["실제 거리"].get("number", 0)
+                dist = dist_val / 1000 if dist_val and dist_val > 100 else (dist_val or 0)
+            elif props.get("거리", {}).get("type") == "number":
+                dist_val = props["거리"].get("number", 0)
+                dist = dist_val / 1000 if dist_val and dist_val > 100 else (dist_val or 0)
             
-            # 각 속성 파싱
-            for k, v in props.items():
-                prop_type = v.get("type", "")
-                
-                if "거리" in k and prop_type == "number" and v.get("number") is not None:
-                    dist = v["number"] / 1000 if v["number"] > 100 else v["number"]
-                
-                if "고도" in k and prop_type == "number" and v.get("number") is not None:
-                    elev = v["number"]
-                
-                if ("페이스" in k or "pace" in k.lower()) and prop_type == "rich_text":
-                    if v.get("rich_text") and len(v["rich_text"]) > 0:
-                        pace = v["rich_text"][0].get("plain_text", "")
-                
-                if ("사진" in k or "photo" in k.lower() or "이미지" in k or "image" in k.lower()) and prop_type == "files":
-                    if v.get("files") and len(v["files"]) > 0:
-                        file_obj = v["files"][0]
-                        photo_url = file_obj.get("file", {}).get("url") or file_obj.get("external", {}).get("url")
+            # 고도
+            elev = 0
+            if props.get("고도", {}).get("type") == "number":
+                elev = props["고도"].get("number", 0) or 0
+            
+            # 페이스 (평균 페이스 또는 평균 페이스 컬럼)
+            pace = None
+            if props.get("평균 페이스", {}).get("type") == "number":
+                pace_sec = props["평균 페이스"].get("number")
+                if pace_sec:
+                    minutes = int(pace_sec // 60)
+                    seconds = int(pace_sec % 60)
+                    pace = f"{minutes}:{seconds:02d}"
+            elif props.get("평균 페이스", {}).get("type") == "rich_text":
+                pace_text = props["평균 페이스"].get("rich_text", [])
+                if pace_text:
+                    pace = pace_text[0].get("plain_text", "")
+            
+            # 사진 (Files 타입)
+            photo_url = None
+            if props.get("사진", {}).get("type") == "files":
+                files = props["사진"].get("files", [])
+                if files and len(files) > 0:
+                    file_obj = files[0]
+                    photo_url = file_obj.get("file", {}).get("url") or file_obj.get("external", {}).get("url")
             
             data.append({
                 "날짜": date_val, "러너": runner, "거리": dist,
