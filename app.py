@@ -9,10 +9,9 @@ NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 DATABASE_ID = os.environ.get("DATABASE_ID")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
-# 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 모바일 최적화 CSS
+# 2. CSS 개선 (사진 및 카드 디자인 최적화)
 st.markdown("""
 <style>
     .main { background-color: #f9fafb; padding: 10px; }
@@ -28,30 +27,21 @@ st.markdown("""
         background: linear-gradient(to bottom right, #ecfdf5, #d1fae5);
         border: 2px solid #86efac; border-radius: 12px; padding: 16px; text-align: center;
     }
-    .crew-card {
-        background: white; border: 2px solid #e5e7eb; border-radius: 10px;
-        padding: 12px; text-align: center; height: 100%;
-    }
     .crew-photo {
-        width: 80px !important; 
-        height: 80px !important; 
-        border-radius: 50%;
-        margin: 0 auto 10px; 
-        object-fit: cover;
-        object-position: center;
-        border: 3px solid #3b82f6; 
-        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        width: 80px; height: 80px; border-radius: 50%;
+        margin: 0 auto 10px; object-fit: cover;
+        border: 3px solid #3b82f6; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         display: block;
     }
     .crew-avatar {
         width: 80px; height: 80px; border-radius: 50%;
-        background: linear-gradient(135deg, #3b82f6, #60a5fa);
-        margin: 0 auto 10px; display: flex; align-items: center; justify-content: center;
+        background: #e5e7eb; margin: 0 auto 10px;
+        display: flex; align-items: center; justify-content: center;
         font-size: 32px; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
     .crew-stat-box {
         background: #f3f4f6; border-radius: 6px; padding: 8px 4px;
-        margin: 4px 0; font-size: 12px;
+        margin: 4px 0; font-size: 12px; text-align: center;
     }
     .stat-label { font-size: 10px; color: #6b7280; font-weight: 600; }
     .stat-value { font-size: 15px; font-weight: 700; color: #1f2937; }
@@ -65,22 +55,15 @@ st.markdown("""
     .ai-box {
         background: linear-gradient(to bottom right, #faf5ff, #ede9fe);
         border: 2px solid #c4b5fd; border-radius: 12px; padding: 16px;
-        font-size: 14px; line-height: 1.6;
     }
     .section-title { font-size: 20px; font-weight: 700; color: #1f2937; margin-bottom: 12px; }
-    .subsection-title { font-size: 15px; font-weight: 600; color: #374151; margin-bottom: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. 데이터 로드 함수 (requests 직접 사용)
-@st.cache_data(ttl=300)
+# 3. 데이터 로드 및 파싱 (에러 해결 포인트)
+@st.cache_data(ttl=600) # 사진 만료 방지를 위해 TTL 설정
 def fetch_notion_data():
     try:
-        if not NOTION_TOKEN or not DATABASE_ID:
-            st.error("설정 오류: 토큰 또는 데이터베이스 ID가 없습니다.")
-            return pd.DataFrame()
-        
-        # requests로 직접 Notion API 호출
         response = requests.post(
             f"https://api.notion.com/v1/databases/{DATABASE_ID}/query",
             headers={
@@ -90,80 +73,50 @@ def fetch_notion_data():
             },
             json={}
         )
-        
-        if not response.ok:
-            st.error(f"API 호출 실패: {response.status_code}")
-            return pd.DataFrame()
+        if not response.ok: return pd.DataFrame()
         
         results = response.json().get("results", [])
-        
-        if not results:
-            st.warning("데이터베이스에 데이터가 없습니다.")
-            return pd.DataFrame()
-        
         data = []
         
         for row in results:
             props = row.get("properties", {})
             
-            # 날짜
-            date_val = ""
-            date_prop = props.get("날짜", {})
-            if date_prop.get("type") == "date" and date_prop.get("date"):
-                date_val = date_prop["date"].get("start", "")[:10]
+            # 날짜 파싱
+            date_val = None
+            if props.get("날짜", {}).get("date"):
+                date_val = props["날짜"]["date"]["start"][:10]
             
-            # 러너 (Select 타입)
-            runner_prop = props.get("러너", {})
-            runner = "Unknown"
-            if runner_prop.get("type") == "select" and runner_prop.get("select"):
-                runner = runner_prop["select"].get("name", "Unknown")
+            # 러너 파싱
+            runner = props.get("러너", {}).get("select", {}).get("name", "Unknown")
             
-            # 거리 (실제 거리 또는 거리 컬럼 사용)
+            # 거리 파싱
             dist = 0
-            if props.get("실제 거리", {}).get("type") == "number":
-                dist_val = props["실제 거리"].get("number", 0)
-                dist = dist_val / 1000 if dist_val and dist_val > 100 else (dist_val or 0)
-            elif props.get("거리", {}).get("type") == "number":
-                dist_val = props["거리"].get("number", 0)
-                dist = dist_val / 1000 if dist_val and dist_val > 100 else (dist_val or 0)
+            for col in ["실제 거리", "거리"]:
+                if props.get(col, {}).get("number") is not None:
+                    dist = props[col]["number"]
+                    if dist > 100: dist /= 1000 # m단위일 경우 km로 변환
+                    break
             
-            # 고도
-            elev = 0
-            if props.get("고도", {}).get("type") == "number":
-                elev = props["고도"].get("number", 0) or 0
+            # 페이스 파싱 (가장 중요한 부분)
+            pace = "N/A"
+            for col in ["평균 페이스", "페이스", "Pace"]:
+                p_prop = props.get(col, {})
+                if p_prop.get("type") == "number" and p_prop.get("number"):
+                    sec = p_prop["number"]
+                    pace = f"{int(sec//60)}:{int(sec%60):02d}"
+                    break
+                elif p_prop.get("type") == "rich_text" and p_prop.get("rich_text"):
+                    pace = p_prop["rich_text"][0]["plain_text"]
+                    break
             
-            # 페이스 (평균 페이스 - Number 타입일 경우 초 단위)
-            pace = None
-            if props.get("평균 페이스", {}).get("type") == "number":
-                pace_sec = props["평균 페이스"].get("number")
-                if pace_sec:
-                    minutes = int(pace_sec // 60)
-                    seconds = int(pace_sec % 60)
-                    pace = f"{minutes}:{seconds:02d}"
-            elif props.get("평균 페이스", {}).get("type") == "rich_text":
-                pace_text = props["평균 페이스"].get("rich_text", [])
-                if pace_text:
-                    pace = pace_text[0].get("plain_text", "")
+            # 고도 파싱
+            elev = props.get("고도", {}).get("number", 0) or 0
             
-            # 페이스가 없으면 다른 컬럼 확인
-            if not pace:
-                for k, v in props.items():
-                    if "페이스" in k.lower() or "pace" in k.lower():
-                        if v.get("type") == "number" and v.get("number"):
-                            pace_sec = v["number"]
-                            minutes = int(pace_sec // 60)
-                            seconds = int(pace_sec % 60)
-                            pace = f"{minutes}:{seconds:02d}"
-                            break
-                        elif v.get("type") == "rich_text" and v.get("rich_text"):
-                            pace = v["rich_text"][0].get("plain_text", "")
-                            break
-            
-            # 사진 (Files 타입)
+            # 사진 파싱 (URL 만료 이슈 대응)
             photo_url = None
-            if props.get("사진", {}).get("type") == "files":
-                files = props["사진"].get("files", [])
-                if files and len(files) > 0:
+            if props.get("사진", {}).get("files"):
+                files = props["사진"]["files"]
+                if files:
                     file_obj = files[0]
                     photo_url = file_obj.get("file", {}).get("url") or file_obj.get("external", {}).get("url")
             
@@ -173,312 +126,106 @@ def fetch_notion_data():
             })
         
         df = pd.DataFrame(data)
-        if not df.empty and '날짜' in df.columns:
-            df = df[df['날짜'] != ""]
+        if not df.empty:
             df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
             df = df.dropna(subset=['날짜'])
-        
         return df
-        
     except Exception as e:
-        st.error(f"데이터 로드 실패: {str(e)}")
+        st.error(f"데이터 로드 에러: {e}")
         return pd.DataFrame()
 
-# 4. 헬퍼 함수들
-def calculate_week_data(df, weeks_ago=0):
-    if df.empty: 
-        return pd.DataFrame()
-    end_date = datetime.now() - timedelta(days=weeks_ago * 7)
-    start_date = end_date - timedelta(days=7)
-    return df[(df['날짜'] >= start_date) & (df['날짜'] < end_date)]
+# 페이스 계산 헬퍼
+def pace_to_seconds(pace_str):
+    if not pace_str or pace_str == "N/A" or ":" not in str(pace_str):
+        return 9999
+    try:
+        m, s = map(int, str(pace_str).split(':'))
+        return m * 60 + s
+    except:
+        return 9999
 
 def calculate_rest_days(member_data):
-    """연속 휴식일 계산"""
-    if member_data.empty:
-        return 0
-    
-    sorted_data = member_data.sort_values('날짜', ascending=False)
+    if member_data.empty: return 0
+    sorted_dates = sorted(member_data['날짜'].dt.date.unique(), reverse=True)
     today = datetime.now().date()
-    rest_days = 0
-    
-    for i in range(30):  # 최근 30일 체크
+    rest = 0
+    for i in range(30):
         check_date = today - timedelta(days=i)
-        if check_date not in sorted_data['날짜'].dt.date.values:
-            rest_days += 1
-        else:
-            break
-    
-    return rest_days
+        if check_date not in sorted_dates: rest += 1
+        else: break
+    return rest
 
-def pace_to_seconds(pace_str):
-    """페이스 문자열을 초로 변환 (5:30 형식)"""
-    try:
-        if not pace_str or pace_str == "" or pace_str == "N/A":
-            return 999999
-        
-        pace_str = str(pace_str).strip()
-        
-        # "5:30" 형식 파싱
-        if ':' in pace_str:
-            parts = pace_str.split(':')
-            if len(parts) == 2:
-                minutes = int(parts[0])
-                seconds = int(parts[1])
-                return minutes * 60 + seconds
-        
-        # 숫자만 있는 경우 (초 단위로 가정)
-        try:
-            return int(float(pace_str))
-        except:
-            pass
-            
-        return 999999
-    except Exception as e:
-        return 999999
-
-def get_ai_coaching(crew_summary, total_dist, prev_dist):
-    """실제 AI 코칭 조언"""
-    try:
-        if not ANTHROPIC_API_KEY:
-            return "❌ AI 코치 기능을 사용하려면 환경 변수에 ANTHROPIC_API_KEY를 설정해주세요.\n\n설정 방법:\n1. Streamlit Cloud: Settings → Secrets에 추가\n2. 로컬: .streamlit/secrets.toml 파일에 추가"
-        
-        prompt = f"""당신은 전문 러닝 코치입니다. 다음 러닝 크루의 지난주 실적을 분석하고, 이번 주 훈련에 도움이 될 구체적인 조언을 3-4문장으로 제공해주세요.
-
-**지난주 크루 실적:**
-- 총 거리: {total_dist:.1f}km (전주 대비: {((total_dist - prev_dist) / prev_dist * 100) if prev_dist > 0 else 0:+.1f}%)
-
-**크루원별 상세:**
-{crew_summary}
-
-**조언 시 고려사항:**
-- 각 크루원의 거리, 페이스, 휴식일을 고려
-- 부상 예방과 점진적 향상에 중점
-- 구체적이고 실천 가능한 조언
-- 긍정적이고 동기부여가 되는 톤
-
-이번 주 훈련 조언:"""
-
-        response = requests.post(
-            'https://api.anthropic.com/v1/messages',
-            headers={
-                'Content-Type': 'application/json',
-                'x-api-key': ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            json={
-                'model': 'claude-3-5-sonnet-20241022',
-                'max_tokens': 800,
-                'messages': [{'role': 'user', 'content': prompt}]
-            },
-            timeout=15
-        )
-        
-        if response.ok:
-            return response.json()['content'][0]['text']
-        else:
-            return f"❌ AI 조언을 가져올 수 없습니다. (상태 코드: {response.status_code})"
-            
-    except Exception as e:
-        return f"❌ 오류 발생: {str(e)}"
-
-# --- 메인 앱 ---
-st.title("🏃 러닝 크루 대시보드")
-
+# --- 메인 렌더링 ---
 df = fetch_notion_data()
 
-if df.empty:
-    st.warning("⚠️ 데이터를 불러올 수 없습니다. Notion 연동 설정을 확인해주세요.")
-    st.info("📌 필요한 환경 변수: NOTION_TOKEN, DATABASE_ID")
-    st.stop()
-
-# [섹션 1] 크루 현황
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">📊 크루 현황</div>', unsafe_allow_html=True)
-
-st.markdown('<div class="subsection-title">🏃 마라톤 대회 안내</div>', unsafe_allow_html=True)
-st.markdown('<div class="notice-box">부산 벚꽃마라톤 (1/10~2/15)</div>', unsafe_allow_html=True)
-st.markdown('<div class="notice-box">경남 진해 군항제 마라톤 (2/1~3/10)</div>', unsafe_allow_html=True)
-
-tw = calculate_week_data(df, 0)
-lw = calculate_week_data(df, 1)
-total_dist = tw['거리'].sum()
-prev_dist = lw['거리'].sum()
-p_change = ((total_dist - prev_dist) / prev_dist * 100) if prev_dist > 0 else 0
-
-st.markdown(f'''
-    <div class="total-distance-card">
-        <div style="font-size:14px;color:#059669;font-weight:600;margin-bottom:8px;">총 거리 (크루 합산)</div>
-        <div style="font-size:42px;font-weight:800;color:#047857;">{total_dist:.1f} km</div>
-        <div style="font-size:14px;color:#6b7280;margin-top:4px;">지난주 대비 {p_change:+.1f}%</div>
-    </div>
-''', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# [섹션 2] 크루 컨디션
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">👥 크루 컨디션</div>', unsafe_allow_html=True)
-
-crew_members = df['러너'].unique()
-cols = st.columns(min(4, len(crew_members)))
-crew_data_for_ai = []
-
-for idx, member in enumerate(crew_members[:4]):
-    with cols[idx]:
-        m_data = df[df['러너'] == member]
-        tw_m = calculate_week_data(m_data, 0)
-        lw_m = calculate_week_data(m_data, 1)
-        
-        w_dist = tw_m['거리'].sum()
-        prev_w_dist = lw_m['거리'].sum()
-        w_change = ((w_dist - prev_w_dist) / prev_w_dist * 100) if prev_w_dist > 0 else 0
-        
-        # 평균 페이스 계산 (이번 주 데이터)
-        avg_pace = "N/A"
-        if not tw_m.empty:
-            # 페이스 데이터가 있는 것만 필터링
-            pace_data = tw_m[tw_m['페이스'].notna()]
-            if not pace_data.empty:
-                # 가장 최근 페이스 값 사용
-                latest_pace = pace_data.sort_values('날짜', ascending=False).iloc[0]['페이스']
-                avg_pace = str(latest_pace) if latest_pace else "N/A"
-        
-        rest_days = calculate_rest_days(m_data)
-        
-        # 사진 가져오기 (이번 주 데이터 중 사진이 있는 가장 최근 것)
-        photo = None
-        if not m_data.empty:
-            recent_data_with_photo = m_data[m_data['사진'].notna()].sort_values('날짜', ascending=False)
-            if not recent_data_with_photo.empty:
-                photo = recent_data_with_photo.iloc[0]['사진']
-        
-        crew_data_for_ai.append({
-            'name': member,
-            'distance': w_dist,
-            'pace': avg_pace,
-            'rest_days': rest_days,
-            'change': w_change
-        })
-        
-        # 카드 렌더링
-        if photo:
-            st.markdown(f'<img src="{photo}" class="crew-photo" alt="{member}">', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="crew-avatar">👤</div>', unsafe_allow_html=True)
-        
-        st.markdown(f'<h3 style="font-size:16px; margin:8px 0; font-weight:700;">{member}</h3>', unsafe_allow_html=True)
-        
-        st.markdown(f'''
-            <div class="crew-stat-box" style="background:#dbeafe;">
-                <div class="stat-label">주간 거리</div>
-                <div class="stat-value">{w_dist:.1f} km</div>
-            </div>
-        ''', unsafe_allow_html=True)
-        
-        st.markdown(f'''
-            <div class="crew-stat-box" style="background:#dcfce7;">
-                <div class="stat-label">전주 대비</div>
-                <div class="stat-value" style="color:{'#dc2626' if w_change < 0 else '#16a34a'};">{w_change:+.1f}%</div>
-            </div>
-        ''', unsafe_allow_html=True)
-        
-        st.markdown(f'''
-            <div class="crew-stat-box" style="background:#f3e8ff;">
-                <div class="stat-label">평균 속도</div>
-                <div class="stat-value">{avg_pace}</div>
-            </div>
-        ''', unsafe_allow_html=True)
-        
-        st.markdown(f'''
-            <div class="crew-stat-box" style="background:#fef3c7;">
-                <div class="stat-label">연속 휴식일</div>
-                <div class="stat-value" style="color:{'#dc2626' if rest_days > 3 else '#16a34a'};">{rest_days}일</div>
-            </div>
-        ''', unsafe_allow_html=True)
-
-st.session_state['crew_data_for_ai'] = crew_data_for_ai
-st.session_state['total_dist'] = total_dist
-st.session_state['prev_dist'] = prev_dist
-st.markdown('</div>', unsafe_allow_html=True)
-
-# [섹션 3] Insights & Fun
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🏆 Insights & Fun</div>', unsafe_allow_html=True)
-
-if not tw.empty:
-    # 가장 긴 거리
-    top_runner = tw.groupby('러너')['거리'].sum().idxmax()
-    top_dist = tw.groupby('러너')['거리'].sum().max()
+if not df.empty:
+    st.title("🏃 러닝 크루 대시보드")
+    
+    # [섹션 1] 크루 현황
+    tw = df[df['날짜'] >= (datetime.now() - timedelta(days=7))]
+    lw = df[(df['날짜'] < (datetime.now() - timedelta(days=7))) & (df['날짜'] >= (datetime.now() - timedelta(days=14)))]
+    
+    total_dist = tw['거리'].sum()
+    prev_dist = lw['거리'].sum()
+    p_change = ((total_dist - prev_dist) / prev_dist * 100) if prev_dist > 0 else 0
     
     st.markdown(f'''
-        <div class="insight-box insight-distance">
-            <div style="font-size:13px;font-weight:600;color:#92400e;margin-bottom:4px;">🥇 최장 거리 주자</div>
-            <div style="font-size:16px;font-weight:700;color:#78350f;">{top_runner} - {top_dist:.1f}km</div>
+        <div class="section-card">
+            <div class="section-title">📊 크루 현황</div>
+            <div class="total-distance-card">
+                <div style="font-size:14px;color:#059669;font-weight:600;">총 거리 (크루 합산)</div>
+                <div style="font-size:42px;font-weight:800;color:#047857;">{total_dist:.1f} km</div>
+                <div style="font-size:14px;color:#6b7280;">지난주 대비 {p_change:+.1f}%</div>
+            </div>
         </div>
     ''', unsafe_allow_html=True)
+
+    # [섹션 2] 크루 컨디션
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">👥 크루 컨디션</div>', unsafe_allow_html=True)
     
-    # 가장 높은 고도
-    if tw['고도'].sum() > 0:
-        top_climber = tw.groupby('러너')['고도'].sum().idxmax()
-        top_elev = tw.groupby('러너')['고도'].sum().max()
-        
-        st.markdown(f'''
-            <div class="insight-box insight-elevation">
-                <div style="font-size:13px;font-weight:600;color:#5b21b6;margin-bottom:4px;">⛰️ 최고 고도 정복자</div>
-                <div style="font-size:16px;font-weight:700;color:#4c1d95;">{top_climber} - {top_elev:.0f}m</div>
-            </div>
-        ''', unsafe_allow_html=True)
+    crew_members = df['러너'].unique()
+    cols = st.columns(len(crew_members[:4]))
     
-    # 가장 빠른 페이스 - 디버깅 강화
-    tw_with_pace = tw[tw['페이스'].notna()].copy()
-    
-    if not tw_with_pace.empty:
-        # 페이스를 초로 변환
-        tw_with_pace['페이스_초'] = tw_with_pace['페이스'].apply(pace_to_seconds)
+    for idx, member in enumerate(crew_members[:4]):
+        m_data = df[df['러너'] == member]
+        tw_m = m_data[m_data['날짜'] >= (datetime.now() - timedelta(days=7))]
         
-        # 유효한 페이스만 필터링 (999999 제외)
-        valid_paces = tw_with_pace[tw_with_pace['페이스_초'] < 999999]
+        w_dist = tw_m['거리'].sum()
+        # 평균 페이스: 이번 주 데이터 중 가장 최근 것
+        avg_pace = tw_m.sort_values('날짜', ascending=False)['페이스'].iloc[0] if not tw_m.empty else "N/A"
+        rest_days = calculate_rest_days(m_data)
+        photo = m_data.sort_values('날짜', ascending=False)['사진'].dropna().iloc[0] if not m_data['사진'].dropna().empty else None
         
-        if not valid_paces.empty:
-            fastest_idx = valid_paces['페이스_초'].idxmin()
-            fastest_runner = valid_paces.loc[fastest_idx, '러너']
-            fastest_pace = valid_paces.loc[fastest_idx, '페이스']
+        with cols[idx]:
+            if photo:
+                st.markdown(f'<img src="{photo}" class="crew-photo">', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="crew-avatar">👤</div>', unsafe_allow_html=True)
             
-            st.markdown(f'''
-                <div class="insight-box insight-pace">
-                    <div style="font-size:13px;font-weight:600;color:#065f46;margin-bottom:4px;">⚡ 최고 스피드 러너</div>
-                    <div style="font-size:16px;font-weight:700;color:#064e3b;">{fastest_runner} - {fastest_pace}/km</div>
-                </div>
-            ''', unsafe_allow_html=True)
-        else:
-            # 디버깅: 페이스 데이터가 파싱 안 되는 경우
-            st.info(f"⚡ 페이스 데이터를 파싱할 수 없습니다. (샘플: {tw_with_pace['페이스'].iloc[0] if not tw_with_pace.empty else 'None'})")
-    else:
-        st.info("⚡ 이번 주 페이스 데이터가 없습니다.")
+            st.markdown(f"""
+            <div class="crew-stat-box" style="background:#dbeafe;"><div class="stat-label">주간 거리</div><div class="stat-value">{w_dist:.1f}km</div></div>
+            <div class="crew-stat-box" style="background:#f3e8ff;"><div class="stat-label">평균 페이스</div><div class="stat-value">{avg_pace}</div></div>
+            <div class="crew-stat-box" style="background:#fef3c7;"><div class="stat-label">연속 휴식</div><div class="stat-value">{rest_days}일</div></div>
+            """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)
+    # [섹션 3] Insights & Fun (정렬 로직 수정)
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🏆 Insights & Fun</div>', unsafe_allow_html=True)
+    
+    if not tw.empty:
+        # 최장 거리
+        dist_rank = tw.groupby('러너')['거리'].sum()
+        st.markdown(f'<div class="insight-box insight-distance">🥇 최장 거리 주자: <b>{dist_rank.idxmax()} ({dist_rank.max():.1f}km)</b></div>', unsafe_allow_html=True)
+        
+        # 최고 속도 (페이스가 가장 낮은 사람)
+        tw['pace_sec'] = tw['페이스'].apply(pace_to_seconds)
+        fast_runners = tw[tw['pace_sec'] < 9999]
+        if not fast_runners.empty:
+            fastest = fast_runners.loc[fast_runners['pace_sec'].idxmin()]
+            st.markdown(f'<div class="insight-box insight-pace">⚡ 최고 스피드 러너: <b>{fastest["러너"]} ({fastest["페이스"]}/km)</b></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# [섹션 4] AI 코치
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🤖 AI 러닝 코치</div>', unsafe_allow_html=True)
-
-if st.button("✨ 이번 주 훈련 조언 받기", type="primary"):
-    if 'crew_data_for_ai' in st.session_state:
-        with st.spinner("🏃 AI 코치가 분석 중입니다..."):
-            crew_summary = "\n".join([
-                f"- {m['name']}: {m['distance']:.1f}km, 페이스 {m['pace']}, 휴식 {m['rest_days']}일, 전주대비 {m['change']:+.1f}%"
-                for m in st.session_state['crew_data_for_ai']
-            ])
-            
-            ai_advice = get_ai_coaching(
-                crew_summary,
-                st.session_state['total_dist'],
-                st.session_state['prev_dist']
-            )
-            st.session_state['ai_advice'] = ai_advice
-
-if 'ai_advice' in st.session_state:
-    st.markdown(f'<div class="ai-box">{st.session_state["ai_advice"]}</div>', unsafe_allow_html=True)
 else:
-    st.info("👆 버튼을 눌러 AI 코치의 맞춤 훈련 조언을 받아보세요!")
-
-st.markdown('</div>', unsafe_allow_html=True)
+    st.error("데이터를 가져오지 못했습니다. 노션 설정을 확인해주세요.")
