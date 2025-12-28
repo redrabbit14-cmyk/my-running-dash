@@ -26,7 +26,7 @@ st.markdown("""
 
 # 3. 유틸리티 함수
 def pace_to_seconds(pace_str):
-    """페이스 문자열을 초 단위로 변환 (안전한 처리)"""
+    """페이스 문자열을 초 단위로 변환"""
     try:
         if not pace_str or pd.isna(pace_str) or pace_str == "N/A":
             return None
@@ -50,7 +50,7 @@ def seconds_to_pace(seconds):
 
 @st.cache_data(ttl=300)
 def fetch_notion_data():
-    """노션 데이터베이스에서 데이터 가져오기 (중복 제거 포함)"""
+    """노션 데이터베이스에서 데이터 가져오기"""
     try:
         response = requests.post(
             f"https://api.notion.com/v1/databases/{DATABASE_ID}/query",
@@ -70,46 +70,43 @@ def fetch_notion_data():
         for row in response.json().get("results", []):
             props = row.get("properties", {})
             
-            # 날짜 추출
+            # 날짜
             date_obj = props.get("날짜", {}).get("date", {})
             if not date_obj or not date_obj.get("start"):
                 continue
             date_str = date_obj.get("start")[:10]
             
-            # 러너 이름
+            # 러너
             runner_obj = props.get("러너", {}).get("select")
             runner = runner_obj.get("name", "Unknown") if runner_obj else "Unknown"
             
-            # 거리 추출 (여러 필드 시도)
+            # 거리
             distance = 0
             for field_name in ["실제 거리", "거리", "Distance"]:
                 dist_val = props.get(field_name, {}).get("number")
                 if dist_val:
-                    # 미터 단위면 km로 변환
                     distance = dist_val if dist_val < 100 else dist_val / 1000
                     break
             
-            # 페이스 추출
+            # 페이스
             pace = "N/A"
             pace_field = props.get("평균 페이스", {}).get("rich_text", [])
             if pace_field and len(pace_field) > 0:
                 pace = pace_field[0].get("plain_text", "N/A")
             
-            # 고도 추출
+            # 고도
             elevation = props.get("고도", {}).get("number", 0) or 0
             
-            # 사진 URL 추출 (수정됨)
+            # 사진
             photo_url = None
             files_field = props.get("사진", {}).get("files", [])
             if files_field and len(files_field) > 0:
                 file_obj = files_field[0]
-                # Notion 내부 파일 또는 외부 링크 모두 처리
                 if file_obj.get("type") == "file":
                     photo_url = file_obj.get("file", {}).get("url")
                 elif file_obj.get("type") == "external":
                     photo_url = file_obj.get("external", {}).get("url")
             
-            # 생성 시간 (중복 제거 시 최신 것 선택용)
             created_time = row.get("created_time", "")
             
             data.append({
@@ -129,11 +126,9 @@ def fetch_notion_data():
         df['날짜'] = pd.to_datetime(df['날짜'])
         df['생성시간'] = pd.to_datetime(df['생성시간'])
         
-        # 중복 제거: 같은 날짜+러너 조합에서 가장 최근 생성된 것만 남김
+        # 중복 제거
         df = df.sort_values(['날짜', '러너', '생성시간'], ascending=[True, True, False])
         df = df.drop_duplicates(subset=['날짜', '러너'], keep='first')
-        
-        # 거리가 0인 행 제거
         df = df[df['거리'] > 0]
         
         return df
@@ -146,22 +141,21 @@ def fetch_notion_data():
 df = fetch_notion_data()
 
 if df.empty:
-    st.warning("⚠️ 노션 데이터를 불러올 수 없습니다. NOTION_TOKEN과 DATABASE_ID를 확인하세요.")
+    st.warning("⚠️ 노션 데이터를 불러올 수 없습니다.")
     st.stop()
 
 st.title("🏃 러닝 크루 대시보드")
 
-# 주간 기준 계산 (일요일 시작)
+# 주간 기준
 today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 days_since_sunday = (today.weekday() + 1) % 7
 this_week_start = today - timedelta(days=days_since_sunday)
 last_week_start = this_week_start - timedelta(days=7)
 
-# 이번주/지난주 데이터 분리
 tw = df[df['날짜'] >= this_week_start].copy()
 lw = df[(df['날짜'] >= last_week_start) & (df['날짜'] < this_week_start)].copy()
 
-# 1. 상단 총거리 카드
+# 1. 총거리
 tw_total = tw['거리'].sum()
 lw_total = lw['거리'].sum()
 st.markdown(f'''
@@ -183,41 +177,34 @@ cols = st.columns(4)
 
 for idx, member in enumerate(crew_list):
     with cols[idx]:
-        # 개별 러너 데이터
         m_tw = tw[tw['러너'] == member].copy()
         m_lw = lw[lw['러너'] == member].copy()
         m_all = df[df['러너'] == member].copy()
         
-        # 이번주/지난주 거리
         tw_dist = m_tw['거리'].sum()
         lw_dist = m_lw['거리'].sum()
         
-        # 전주 대비 변화율
         if lw_dist > 0:
             change_pct = ((tw_dist - lw_dist) / lw_dist) * 100
         else:
             change_pct = 0 if tw_dist == 0 else 100
         
-        # 평균 페이스 계산 (이번주)
         m_tw['페이스_초'] = m_tw['페이스'].apply(pace_to_seconds)
         valid_paces = m_tw['페이스_초'].dropna()
         avg_pace_str = seconds_to_pace(valid_paces.mean()) if len(valid_paces) > 0 else "N/A"
         
-        # 연속 휴식일 계산
         if not m_all.empty:
             last_run_date = m_all['날짜'].max()
             rest_days = max(0, (today - last_run_date).days)
         else:
             rest_days = 0
         
-        # 사진 (가장 최근 기록에서)
         photo_url = None
         if not m_all.empty:
             recent_photos = m_all.sort_values('날짜', ascending=False)['사진'].dropna()
             if len(recent_photos) > 0:
                 photo_url = recent_photos.iloc[0]
         
-        # UI 렌더링
         if photo_url:
             st.markdown(f'<img src="{photo_url}" class="crew-photo">', unsafe_allow_html=True)
         else:
@@ -231,17 +218,25 @@ for idx, member in enumerate(crew_list):
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 3. Insights & Fun
+# 3. Insights
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.markdown('<div style="font-size:18px; font-weight:700; margin-bottom:15px;">🏆 Insights & Fun</div>', unsafe_allow_html=True)
 
 if not tw.empty:
-    # 최장 거리
     top_dist = tw.groupby('러너')['거리'].sum()
     if len(top_dist) > 0:
         st.markdown(f'<div style="margin-bottom:8px;">🥇 이번 주 최장 거리: <b>{top_dist.idxmax()} ({top_dist.max():.2f}km)</b></div>', unsafe_allow_html=True)
     
-    # 최고 고도
     top_elev = tw.groupby('러너')['고도'].sum()
     if top_elev.max() > 0:
-        st.markdown(f'<div style="margin-bottom:8
+        st.markdown(f'<div style="margin-bottom:8px;">⛰️ 이번 주 최고 고도: <b>{top_elev.idxmax()} ({top_elev.max():.0f}m)</b></div>', unsafe_allow_html=True)
+    
+    tw_copy = tw.copy()
+    tw_copy['페이스_초'] = tw_copy['페이스'].apply(pace_to_seconds)
+    valid_sp = tw_copy[tw_copy['페이스_초'].notnull()]
+    if not valid_sp.empty:
+        fastest_idx = valid_sp['페이스_초'].idxmin()
+        fastest = valid_sp.loc[fastest_idx]
+        st.markdown(f'<div>⚡ 이번 주 최고 스피드: <b>{fastest["러너"]} ({fastest["페이스"]}/km)</b></div>', unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
