@@ -1,5 +1,4 @@
+notion-client==2.2.1
 streamlit
-notion-client
 pandas
-plotly
 requests
