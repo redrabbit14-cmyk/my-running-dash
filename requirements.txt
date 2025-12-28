@@ -3,5 +3,3 @@ notion-client==2.3.0
 pandas==2.2.2
 plotly==5.24.0
 requests==2.32.3
-python-dotenv==1.0.1
-
