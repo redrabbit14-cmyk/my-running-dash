@@ -1,5 +1,3 @@
-streamlit==1.38.0
-notion-client==2.3.0
-pandas==2.2.2
-plotly==5.24.0
-requests==2.32.3
+streamlit
+pandas
+requests
