@@ -20,7 +20,6 @@ st.markdown("""
         padding: 10px;
     }
     
-    /* 섹션 카드 */
     .section-card {
         background: white;
         border-radius: 12px;
@@ -29,7 +28,6 @@ st.markdown("""
         margin-bottom: 16px;
     }
     
-    /* 공지사항 박스 */
     .notice-box {
         background: #eff6ff;
         border: 2px solid #bfdbfe;
@@ -40,7 +38,6 @@ st.markdown("""
         color: #1e40af;
     }
     
-    /* 날씨 카드 - 작고 빽빽하게 */
     .weather-card {
         background: linear-gradient(to bottom, #e0f2fe, #f0f9ff);
         border-radius: 6px;
@@ -49,7 +46,6 @@ st.markdown("""
         font-size: 11px;
     }
     
-    /* 총 거리 카드 */
     .total-distance-card {
         background: linear-gradient(to bottom right, #ecfdf5, #d1fae5);
         border: 2px solid #86efac;
@@ -58,7 +54,6 @@ st.markdown("""
         text-align: center;
     }
     
-    /* Insight & Fun 박스 */
     .insight-box {
         background: white;
         border-left: 4px solid;
@@ -72,7 +67,6 @@ st.markdown("""
     .insight-climb { border-color: #3b82f6; background: #eff6ff; }
     .insight-speed { border-color: #a855f7; background: #faf5ff; }
     
-    /* AI 추천 박스 */
     .ai-box {
         background: linear-gradient(to bottom right, #faf5ff, #ede9fe);
         border: 2px solid #c4b5fd;
@@ -80,7 +74,6 @@ st.markdown("""
         padding: 16px;
     }
     
-    /* 제목 스타일 */
     .section-title {
         font-size: 20px;
         font-weight: 700;
@@ -95,7 +88,6 @@ st.markdown("""
         margin-bottom: 8px;
     }
     
-    /* 버튼 스타일 */
     .stButton > button {
         background: linear-gradient(135deg, #a855f7, #9333ea);
         color: white;
@@ -291,7 +283,6 @@ if not df.empty:
     
     for idx, member in enumerate(crew_members):
         with crew_cols[idx]:
-        with crew_cols[idx]:
             member_data = df[df['러너'] == member]
             this_week_data = calculate_week_data(member_data, 0)
             last_week_data = calculate_week_data(member_data, 1)
@@ -382,7 +373,7 @@ st.markdown('<div class="section-title">🎉 Insight & Fun</div>', unsafe_allow_
 if not df.empty:
     this_week = calculate_week_data(df, 0)
     
-    # 사실상 풀 - 가장 길게 뛴 사람 1명
+    # 사실상 풀
     if not this_week.empty and this_week['거리'].sum() > 0:
         longest_run = this_week.loc[this_week['거리'].idxmax()]
         st.markdown(f'''
@@ -399,7 +390,7 @@ if not df.empty:
             </div>
         ''', unsafe_allow_html=True)
     
-    # 사실상 등산 - 가장 높게 오른 사람 1명
+    # 사실상 등산
     if not this_week.empty and this_week['고도'].sum() > 0:
         top_climb = this_week.loc[this_week['고도'].idxmax()]
         st.markdown(f'''
@@ -416,11 +407,10 @@ if not df.empty:
             </div>
         ''', unsafe_allow_html=True)
     
-    # 사실상 우사인볼트 - 가장 빠른 페이스 1명
+    # 사실상 우사인볼트
     if '페이스' in this_week.columns:
         paces_data = this_week[this_week['페이스'].notna()].copy()
         if not paces_data.empty:
-            # 페이스를 시간으로 변환해서 비교 (예: "5:30" -> 330초)
             def pace_to_seconds(pace_str):
                 try:
                     if isinstance(pace_str, str) and ':' in pace_str:
