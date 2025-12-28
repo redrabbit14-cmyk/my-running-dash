@@ -277,60 +277,57 @@ st.markdown('<div class="section-title">👥 크루 컨디션</div>', unsafe_all
 
 if not df.empty:
     crew_members = df['러너'].unique()[:4]
-    crew_cols = st.columns(4)
-    
     crew_data_for_ai = []
     
+    cols = st.columns(4)
+    
     for idx, member in enumerate(crew_members):
-        with crew_cols[idx]:
-            member_data = df[df['러너'] == member]
-            this_week_data = calculate_week_data(member_data, 0)
-            last_week_data = calculate_week_data(member_data, 1)
-            
-            week_dist = this_week_data['거리'].sum()
-            prev_week_dist = last_week_data['거리'].sum()
-            
-            if prev_week_dist > 0:
-                dist_change = ((week_dist - prev_week_dist) / prev_week_dist) * 100
-            else:
-                dist_change = 0
-            
-            avg_pace = "5:30"
-            if not this_week_data.empty and this_week_data['페이스'].notna().any():
-                paces = this_week_data['페이스'].dropna()
-                if len(paces) > 0:
-                    avg_pace = paces.mode()[0] if len(paces.mode()) > 0 else paces.iloc[0]
-            
-            last_run = this_week_data['날짜'].max() if not this_week_data.empty else None
-            rest_days = (datetime.now() - last_run).days if last_run and pd.notna(last_run) else 0
-            
-            crew_data_for_ai.append({
-                'name': member,
-                'distance': week_dist,
-                'pace': avg_pace,
-                'rest_days': rest_days
-            })
-            
-            trend_icon = "📈" if dist_change >= 0 else "📉"
-            trend_color = "#10b981" if dist_change >= 0 else "#ef4444"
-            
-            # 사진 URL
-            photo_url = None
-            if not member_data.empty and '사진' in member_data.columns:
-                recent_photos = member_data[member_data['사진'].notna()].sort_values('날짜', ascending=False)
-                if not recent_photos.empty:
-                    photo_url = recent_photos.iloc[0]['사진']
-            
-            # 아바타
+        member_data = df[df['러너'] == member]
+        this_week_data = calculate_week_data(member_data, 0)
+        last_week_data = calculate_week_data(member_data, 1)
+        
+        week_dist = this_week_data['거리'].sum()
+        prev_week_dist = last_week_data['거리'].sum()
+        
+        if prev_week_dist > 0:
+            dist_change = ((week_dist - prev_week_dist) / prev_week_dist) * 100
+        else:
+            dist_change = 0
+        
+        avg_pace = "5:30"
+        if not this_week_data.empty and this_week_data['페이스'].notna().any():
+            paces = this_week_data['페이스'].dropna()
+            if len(paces) > 0:
+                avg_pace = paces.mode()[0] if len(paces.mode()) > 0 else paces.iloc[0]
+        
+        last_run = this_week_data['날짜'].max() if not this_week_data.empty else None
+        rest_days = (datetime.now() - last_run).days if last_run and pd.notna(last_run) else 0
+        
+        crew_data_for_ai.append({
+            'name': member,
+            'distance': week_dist,
+            'pace': avg_pace,
+            'rest_days': rest_days
+        })
+        
+        trend_icon = "📈" if dist_change >= 0 else "📉"
+        trend_color = "#10b981" if dist_change >= 0 else "#ef4444"
+        
+        # 사진 URL
+        photo_url = None
+        if not member_data.empty and '사진' in member_data.columns:
+            recent_photos = member_data[member_data['사진'].notna()].sort_values('날짜', ascending=False)
+            if not recent_photos.empty:
+                photo_url = recent_photos.iloc[0]['사진']
+        
+        with cols[idx]:
             if photo_url:
                 st.markdown(f'<img src="{photo_url}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.1);margin:0 auto;display:block;">', unsafe_allow_html=True)
             else:
                 st.markdown('<div style="width:50px;height:50px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#60a5fa);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:24px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.1);">👤</div>', unsafe_allow_html=True)
             
-            # 이름
             st.markdown(f'<h3 style="font-size:13px;font-weight:700;color:#1f2937;margin:8px 0;text-align:center;">{member}</h3>', unsafe_allow_html=True)
             
-            # 주간거리
             st.markdown(f'''
                 <div style="background:#dbeafe;border-radius:4px;padding:4px;margin:2px 0;text-align:center;">
                     <div style="font-size:9px;color:#6b7280;">주간거리</div>
@@ -338,7 +335,6 @@ if not df.empty:
                 </div>
             ''', unsafe_allow_html=True)
             
-            # 전주대비
             st.markdown(f'''
                 <div style="background:#f3f4f6;border-radius:4px;padding:4px;margin:2px 0;text-align:center;">
                     <div style="font-size:9px;color:#6b7280;">전주대비</div>
@@ -346,7 +342,6 @@ if not df.empty:
                 </div>
             ''', unsafe_allow_html=True)
             
-            # 평균속도
             st.markdown(f'''
                 <div style="background:#f3e8ff;border-radius:4px;padding:4px;margin:2px 0;text-align:center;">
                     <div style="font-size:9px;color:#6b7280;">평균속도</div>
@@ -354,7 +349,6 @@ if not df.empty:
                 </div>
             ''', unsafe_allow_html=True)
             
-            # 연속휴식
             st.markdown(f'''
                 <div style="background:#fed7aa;border-radius:4px;padding:4px;margin:2px 0;text-align:center;">
                     <div style="font-size:9px;color:#6b7280;">연속휴식</div>
