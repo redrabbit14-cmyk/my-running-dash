@@ -33,9 +33,14 @@ st.markdown("""
         padding: 12px; text-align: center; height: 100%;
     }
     .crew-photo {
-        width: 80px; height: 80px; border-radius: 50%;
-        margin: 0 auto 10px; object-fit: cover;
-        border: 3px solid #3b82f6; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        width: 80px !important; 
+        height: 80px !important; 
+        border-radius: 50%;
+        margin: 0 auto 10px; 
+        object-fit: cover;
+        object-position: center;
+        border: 3px solid #3b82f6; 
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         display: block;
     }
     .crew-avatar {
@@ -206,15 +211,29 @@ def calculate_rest_days(member_data):
     return rest_days
 
 def pace_to_seconds(pace_str):
-    """페이스 문자열을 초로 변환"""
+    """페이스 문자열을 초로 변환 (5:30 형식)"""
     try:
-        if not pace_str or pace_str == "":
+        if not pace_str or pace_str == "" or pace_str == "N/A":
             return 999999
-        parts = pace_str.strip().split(':')
-        if len(parts) == 2:
-            return int(parts[0]) * 60 + int(parts[1])
+        
+        pace_str = str(pace_str).strip()
+        
+        # "5:30" 형식 파싱
+        if ':' in pace_str:
+            parts = pace_str.split(':')
+            if len(parts) == 2:
+                minutes = int(parts[0])
+                seconds = int(parts[1])
+                return minutes * 60 + seconds
+        
+        # 숫자만 있는 경우 (초 단위로 가정)
+        try:
+            return int(float(pace_str))
+        except:
+            pass
+            
         return 999999
-    except:
+    except Exception as e:
         return 999999
 
 def get_ai_coaching(crew_summary, total_dist, prev_dist):
@@ -313,12 +332,15 @@ for idx, member in enumerate(crew_members[:4]):
         prev_w_dist = lw_m['거리'].sum()
         w_change = ((w_dist - prev_w_dist) / prev_w_dist * 100) if prev_w_dist > 0 else 0
         
-        # 평균 페이스 계산 (이번 주 데이터 중 가장 최근 값)
+        # 평균 페이스 계산 (이번 주 데이터)
         avg_pace = "N/A"
         if not tw_m.empty:
-            pace_data = tw_m[tw_m['페이스'].notna()].sort_values('날짜', ascending=False)
+            # 페이스 데이터가 있는 것만 필터링
+            pace_data = tw_m[tw_m['페이스'].notna()]
             if not pace_data.empty:
-                avg_pace = pace_data.iloc[0]['페이스']
+                # 가장 최근 페이스 값 사용
+                latest_pace = pace_data.sort_values('날짜', ascending=False).iloc[0]['페이스']
+                avg_pace = str(latest_pace) if latest_pace else "N/A"
         
         rest_days = calculate_rest_days(m_data)
         
@@ -339,7 +361,7 @@ for idx, member in enumerate(crew_members[:4]):
         
         # 카드 렌더링
         if photo:
-            st.markdown(f'<img src="{photo}" class="crew-photo">', unsafe_allow_html=True)
+            st.markdown(f'<img src="{photo}" class="crew-photo" alt="{member}">', unsafe_allow_html=True)
         else:
             st.markdown('<div class="crew-avatar">👤</div>', unsafe_allow_html=True)
         
@@ -406,16 +428,20 @@ if not tw.empty:
             </div>
         ''', unsafe_allow_html=True)
     
-    # 가장 빠른 페이스
-    tw_pace = tw[tw['페이스'].notna()].copy()
-    if not tw_pace.empty:
-        tw_pace['페이스_초'] = tw_pace['페이스'].apply(pace_to_seconds)
-        # 999999는 파싱 실패이므로 제외
-        tw_pace_valid = tw_pace[tw_pace['페이스_초'] < 999999]
-        if not tw_pace_valid.empty:
-            fastest_idx = tw_pace_valid['페이스_초'].idxmin()
-            fastest_runner = tw_pace_valid.loc[fastest_idx, '러너']
-            fastest_pace = tw_pace_valid.loc[fastest_idx, '페이스']
+    # 가장 빠른 페이스 - 디버깅 강화
+    tw_with_pace = tw[tw['페이스'].notna()].copy()
+    
+    if not tw_with_pace.empty:
+        # 페이스를 초로 변환
+        tw_with_pace['페이스_초'] = tw_with_pace['페이스'].apply(pace_to_seconds)
+        
+        # 유효한 페이스만 필터링 (999999 제외)
+        valid_paces = tw_with_pace[tw_with_pace['페이스_초'] < 999999]
+        
+        if not valid_paces.empty:
+            fastest_idx = valid_paces['페이스_초'].idxmin()
+            fastest_runner = valid_paces.loc[fastest_idx, '러너']
+            fastest_pace = valid_paces.loc[fastest_idx, '페이스']
             
             st.markdown(f'''
                 <div class="insight-box insight-pace">
@@ -423,6 +449,11 @@ if not tw.empty:
                     <div style="font-size:16px;font-weight:700;color:#064e3b;">{fastest_runner} - {fastest_pace}/km</div>
                 </div>
             ''', unsafe_allow_html=True)
+        else:
+            # 디버깅: 페이스 데이터가 파싱 안 되는 경우
+            st.info(f"⚡ 페이스 데이터를 파싱할 수 없습니다. (샘플: {tw_with_pace['페이스'].iloc[0] if not tw_with_pace.empty else 'None'})")
+    else:
+        st.info("⚡ 이번 주 페이스 데이터가 없습니다.")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
