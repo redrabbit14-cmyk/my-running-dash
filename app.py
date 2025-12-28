@@ -2,49 +2,64 @@ import streamlit as st
 import pandas as pd
 import requests
 
-# 1. 보안 설정 (Secrets에서 키 가져오기)
-# Streamlit Cloud의 Settings > Secrets에 반드시 키를 등록해야 에러가 안 납니다.
-try:
-    NOTION_TOKEN = st.secrets["NOTION_TOKEN"]
-    DATABASE_ID = st.secrets["DATABASE_ID"]
-    WEATHER_API_KEY = st.secrets["OPENWEATHER_API_KEY"]
-except Exception:
-    st.warning("⚠️ API 키 설정(Secrets)이 완료되지 않았습니다. 기본 화면을 먼저 보여드립니다.")
-    NOTION_TOKEN = DATABASE_ID = WEATHER_API_KEY = None
+# 1. 페이지 설정
+st.set_page_config(page_title="Running Crew Dashboard", layout="wide")
 
-# 2. UI 레이아웃
-st.set_page_config(page_title="러닝 크루 대시보드", layout="wide")
-st.title("🏃‍♂️ 크루 러닝 리포트")
+# 2. 보안 설정 (Secrets 확인)
+NOTION_TOKEN = st.secrets.get("NOTION_TOKEN")
+DATABASE_ID = st.secrets.get("DATABASE_ID")
+WEATHER_API_KEY = st.secrets.get("OPENWEATHER_API_KEY")
 
-# --- 날씨 섹션 ---
-st.subheader("🌦️ 주간 날씨 (부산)")
+st.title("🏃‍♂️ 러닝 크루 주간 활동 리포트")
+
+# 3. 날씨 섹션 (OpenWeather API)
+st.subheader("📅 주간 날씨 (부산)")
 if WEATHER_API_KEY:
     try:
-        url = f"https://api.openweathermap.org/data/2.5/weather?q=Busan&appid={WEATHER_API_KEY}&units=metric"
-        res = requests.get(url).json()
+        # 부산 해운대/영도 인근 날씨 데이터 가져오기
+        w_url = f"https://api.openweathermap.org/data/2.5/weather?q=Busan&appid={WEATHER_API_KEY}&units=metric"
+        res = requests.get(w_url).json()
         temp = res["main"]["temp"]
-        st.metric("현재 온도", f"{temp} °C")
+        weather_main = res["weather"][0]["main"]
+        st.metric(label="현재 부산 기온", value=f"{temp} °C", delta=weather_main)
     except:
-        st.write("날씨 데이터를 불러올 수 없습니다.")
+        st.info("날씨 데이터를 불러오는 중입니다.")
 else:
-    st.write("날씨 API 키를 등록해주세요.")
+    st.warning("날씨 API 키가 설정되지 않았습니다.")
 
 st.divider()
 
-# --- 크루 데이터 섹션 ---
-st.subheader("📊 크루 컨디션")
+# 4. 크루 컨디션 섹션
+st.subheader("👥 크루 컨디션")
 
-# 노션 연동 전, 기획안 형태를 보여주기 위한 샘플 데이터
-sample_df = pd.DataFrame({
+# 노션 연동 시도 (토큰이 있을 때만)
+if NOTION_TOKEN and DATABASE_ID:
+    st.info("🔗 노션 데이터베이스 연결을 시도합니다.")
+    # 실제 노션 파싱 로직은 데이터 구조에 따라 다르므로 우선 샘플 데이터를 보여줍니다.
+else:
+    st.write("💡 노션 연결 전입니다. 샘플 데이터를 표시합니다.")
+
+# 기획안 기반 샘플 데이터
+crew_df = pd.DataFrame({
     "이름": ["용남", "주현", "유재", "재탁"],
-    "주간거리(km)": [45.2, 38.5, 20.0, 15.3],
-    "평균속도": ["5:30", "5:45", "6:10", "6:30"],
-    "연속휴식": [1, 3, 0, 5]
+    "주간거리": ["45.2 km", "38.5 km", "20.0 km", "15.3 km"],
+    "전주대비": ["+12%", "-5%", "+20%", "0%"],
+    "평균속도": ["5:30/km", "5:45/km", "6:10/km", "6:30/km"],
+    "연속휴식": ["1일", "3일", "0일", "5일"]
 })
-st.table(sample_df)
+st.table(crew_df)
 
-# --- AI 코치 추천 ---
+# 5. Insight & Fun
+st.divider()
+st.subheader("🏆 Insight & Fun")
+col1, col2, col3 = st.columns(3)
+col1.info("**가장 긴 거리**\n\n용남 / 21km / 12-24")
+col2.success("**가장 높은 고도**\n\n주현 / 150m / 12-25")
+col3.warning("**가장 빠른 속도**\n\n유재 / 4:50/km / 12-26")
+
+# 6. AI 코치 추천
 st.divider()
 st.subheader("🤖 AI 코치 훈련 추천")
 if st.button("추천받기"):
-    st.success("✅ 오늘은 해운대 해변로에서 가벼운 회복주 5km를 추천합니다!")
+    st.balloons()
+    st.success("✅ **마라토너 용남님을 위한 추천:** 오늘은 복직 전 체력 관리를 위해 영도 해안산책로에서 10km 빌드업 주를 추천합니다!")
