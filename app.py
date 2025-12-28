@@ -36,6 +36,7 @@ st.markdown("""
         width: 80px; height: 80px; border-radius: 50%;
         margin: 0 auto 10px; object-fit: cover;
         border: 3px solid #3b82f6; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        display: block;
     }
     .crew-avatar {
         width: 80px; height: 80px; border-radius: 50%;
@@ -126,7 +127,7 @@ def fetch_notion_data():
             if props.get("고도", {}).get("type") == "number":
                 elev = props["고도"].get("number", 0) or 0
             
-            # 페이스 (평균 페이스 또는 평균 페이스 컬럼)
+            # 페이스 (평균 페이스 - Number 타입일 경우 초 단위)
             pace = None
             if props.get("평균 페이스", {}).get("type") == "number":
                 pace_sec = props["평균 페이스"].get("number")
@@ -138,6 +139,20 @@ def fetch_notion_data():
                 pace_text = props["평균 페이스"].get("rich_text", [])
                 if pace_text:
                     pace = pace_text[0].get("plain_text", "")
+            
+            # 페이스가 없으면 다른 컬럼 확인
+            if not pace:
+                for k, v in props.items():
+                    if "페이스" in k.lower() or "pace" in k.lower():
+                        if v.get("type") == "number" and v.get("number"):
+                            pace_sec = v["number"]
+                            minutes = int(pace_sec // 60)
+                            seconds = int(pace_sec % 60)
+                            pace = f"{minutes}:{seconds:02d}"
+                            break
+                        elif v.get("type") == "rich_text" and v.get("rich_text"):
+                            pace = v["rich_text"][0].get("plain_text", "")
+                            break
             
             # 사진 (Files 타입)
             photo_url = None
@@ -206,7 +221,7 @@ def get_ai_coaching(crew_summary, total_dist, prev_dist):
     """실제 AI 코칭 조언"""
     try:
         if not ANTHROPIC_API_KEY:
-            return "❌ ANTHROPIC_API_KEY가 설정되지 않았습니다."
+            return "❌ AI 코치 기능을 사용하려면 환경 변수에 ANTHROPIC_API_KEY를 설정해주세요.\n\n설정 방법:\n1. Streamlit Cloud: Settings → Secrets에 추가\n2. 로컬: .streamlit/secrets.toml 파일에 추가"
         
         prompt = f"""당신은 전문 러닝 코치입니다. 다음 러닝 크루의 지난주 실적을 분석하고, 이번 주 훈련에 도움이 될 구체적인 조언을 3-4문장으로 제공해주세요.
 
@@ -298,18 +313,21 @@ for idx, member in enumerate(crew_members[:4]):
         prev_w_dist = lw_m['거리'].sum()
         w_change = ((w_dist - prev_w_dist) / prev_w_dist * 100) if prev_w_dist > 0 else 0
         
+        # 평균 페이스 계산 (이번 주 데이터 중 가장 최근 값)
         avg_pace = "N/A"
-        if not tw_m.empty and not tw_m['페이스'].dropna().empty:
-            avg_pace = tw_m['페이스'].dropna().iloc[0]
+        if not tw_m.empty:
+            pace_data = tw_m[tw_m['페이스'].notna()].sort_values('날짜', ascending=False)
+            if not pace_data.empty:
+                avg_pace = pace_data.iloc[0]['페이스']
         
         rest_days = calculate_rest_days(m_data)
         
-        # 사진 가져오기
+        # 사진 가져오기 (이번 주 데이터 중 사진이 있는 가장 최근 것)
         photo = None
-        if not tw_m.empty:
-            recent_photos = tw_m['사진'].dropna()
-            if not recent_photos.empty:
-                photo = recent_photos.iloc[0]
+        if not m_data.empty:
+            recent_data_with_photo = m_data[m_data['사진'].notna()].sort_values('날짜', ascending=False)
+            if not recent_data_with_photo.empty:
+                photo = recent_data_with_photo.iloc[0]['사진']
         
         crew_data_for_ai.append({
             'name': member,
@@ -392,16 +410,19 @@ if not tw.empty:
     tw_pace = tw[tw['페이스'].notna()].copy()
     if not tw_pace.empty:
         tw_pace['페이스_초'] = tw_pace['페이스'].apply(pace_to_seconds)
-        fastest_idx = tw_pace['페이스_초'].idxmin()
-        fastest_runner = tw_pace.loc[fastest_idx, '러너']
-        fastest_pace = tw_pace.loc[fastest_idx, '페이스']
-        
-        st.markdown(f'''
-            <div class="insight-box insight-pace">
-                <div style="font-size:13px;font-weight:600;color:#065f46;margin-bottom:4px;">⚡ 최고 스피드 러너</div>
-                <div style="font-size:16px;font-weight:700;color:#064e3b;">{fastest_runner} - {fastest_pace}/km</div>
-            </div>
-        ''', unsafe_allow_html=True)
+        # 999999는 파싱 실패이므로 제외
+        tw_pace_valid = tw_pace[tw_pace['페이스_초'] < 999999]
+        if not tw_pace_valid.empty:
+            fastest_idx = tw_pace_valid['페이스_초'].idxmin()
+            fastest_runner = tw_pace_valid.loc[fastest_idx, '러너']
+            fastest_pace = tw_pace_valid.loc[fastest_idx, '페이스']
+            
+            st.markdown(f'''
+                <div class="insight-box insight-pace">
+                    <div style="font-size:13px;font-weight:600;color:#065f46;margin-bottom:4px;">⚡ 최고 스피드 러너</div>
+                    <div style="font-size:16px;font-weight:700;color:#064e3b;">{fastest_runner} - {fastest_pace}/km</div>
+                </div>
+            ''', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
