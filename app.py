@@ -42,6 +42,7 @@ def fetch_notion_data():
         
         if response.status_code != 200:
             st.error(f"노션 데이터 로드 실패: {response.status_code}")
+            st.error(f"에러 메시지: {response.text}")
             return pd.DataFrame()
         
         data = response.json()
@@ -49,11 +50,14 @@ def fetch_notion_data():
         has_more = data.get("has_more", False)
         start_cursor = data.get("next_cursor")
     
+    st.info(f"노션에서 {len(all_results)}개의 페이지를 가져왔습니다.")
     return parse_notion_data(all_results)
 
 def parse_notion_data(results):
     """노션 데이터 파싱"""
     records = []
+    
+    st.write(f"파싱 시작: {len(results)}개 항목")
     
     for page in results:
         props = page["properties"]
@@ -88,11 +92,15 @@ def parse_notion_data(results):
                     "person_avatar": person_avatar
                 })
         except Exception as e:
+            st.warning(f"파싱 에러: {str(e)}")
             continue
+    
+    st.write(f"파싱 완료: {len(records)}개 레코드")
     
     df = pd.DataFrame(records)
     
     if df.empty:
+        st.error("DataFrame이 비어있습니다!")
         return df
     
     df["date"] = pd.to_datetime(df["date"])
@@ -100,6 +108,8 @@ def parse_notion_data(results):
     df = df.drop_duplicates(subset=["name", "date", "distance"], keep="first")
     
     df["pace_numeric"] = df["pace"].apply(lambda x: float(str(x).replace(",", "")) if x else 0)
+    
+    st.success(f"최종 데이터: {len(df)}개 레코드")
     
     return df.sort_values("date", ascending=False).reset_index(drop=True)
 
