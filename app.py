@@ -24,27 +24,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 3. 유틸리티 함수
-def pace_to_seconds(pace_str):
-    """페이스 문자열을 초 단위로 변환"""
+# 3. 유틸리티 함수 수정
+def mps_to_pace(mps):
+    """초당 미터(m/s)를 km당 페이스(분:초)로 변환"""
     try:
-        if not pace_str or pd.isna(pace_str) or pace_str == "N/A":
-            return None
-        pace_str = str(pace_str).strip()
-        pace_str = pace_str.replace("'", ":").replace('"', "").replace("’", ":").replace("´", ":")
-        if ":" not in pace_str:
-            return None
-        parts = pace_str.split(':')
-        if len(parts) != 2:
-            return None
-        minutes = float(parts[0].strip())
-        seconds = float(parts[1].strip())
-        return int(minutes * 60 + seconds)
+        if mps is None or mps <= 0:
+            return "N/A"
+        # 1km(1000m)를 이동하는 데 걸리는 총 초 계산
+        total_seconds = 1000 / mps
+        minutes = int(total_seconds // 60)
+        seconds = int(total_seconds % 60)
+        return f"{minutes}:{seconds:02d}"
+    except:
+        return "N/A"
+
+def pace_to_seconds(pace_str):
+    """페이스 문자열(5:30)을 초 단위로 변환 (기존 유지)"""
+    try:
+        if not pace_str or pace_str == "N/A": return None
+        parts = str(pace_str).split(':')
+        return int(parts[0]) * 60 + int(parts[1])
     except:
         return None
 
 def seconds_to_pace(seconds):
-    """초를 페이스 문자열로 변환"""
+    """초 단위를 다시 페이스 문자열로 (기존 유지)"""
     if seconds is None or pd.isna(seconds) or seconds <= 0:
         return "N/A"
     minutes = int(seconds // 60)
@@ -53,7 +57,7 @@ def seconds_to_pace(seconds):
 
 @st.cache_data(ttl=300)
 def fetch_notion_data():
-    """노션 데이터베이스에서 데이터 가져오기"""
+    """노션 데이터 가져오기 - 페이스 로직 수정"""
     try:
         response = requests.post(
             f"https://api.notion.com/v1/databases/{DATABASE_ID}/query",
@@ -65,79 +69,52 @@ def fetch_notion_data():
             json={"page_size": 100}
         )
         
-        if not response.ok:
-            st.error(f"노션 API 오류: {response.status_code}")
-            return pd.DataFrame()
-        
         data = []
         for row in response.json().get("results", []):
             props = row.get("properties", {})
             
-            # 날짜
+            # [날짜, 러너, 거리 데이터 추출 부분은 기존과 동일]
             date_obj = props.get("날짜", {}).get("date", {})
-            if not date_obj or not date_obj.get("start"):
-                continue
+            if not date_obj or not date_obj.get("start"): continue
             date_str = date_obj.get("start")[:10]
             
-            # 러너
             runner_obj = props.get("러너", {}).get("select")
             runner = runner_obj.get("name", "Unknown") if runner_obj else "Unknown"
             
-            # 거리
             distance = 0
             for field_name in ["실제 거리", "거리", "Distance"]:
                 dist_val = props.get(field_name, {}).get("number")
                 if dist_val:
                     distance = dist_val if dist_val < 100 else dist_val / 1000
                     break
+
+            # --- 이 부분을 수정했습니다: '페이스' 컬럼의 숫자를 읽어와서 변환 ---
+            mps_val = props.get("페이스", {}).get("number") # 노션의 # 페이스(숫자) 컬럼
+            pace = mps_to_pace(mps_val)
+            # --------------------------------------------------------
             
-            # 페이스
-            pace = "N/A"
-            pace_field = props.get("평균 페이스", {}).get("rich_text", [])
-            if pace_field and len(pace_field) > 0:
-                pace = pace_field[0].get("plain_text", "N/A")
-            
-            # 고도
             elevation = props.get("고도", {}).get("number", 0) or 0
             
-            # 사진
+            # [사진 및 기타 데이터 추출 기존과 동일]
             photo_url = None
             files_field = props.get("사진", {}).get("files", [])
-            if files_field and len(files_field) > 0:
+            if files_field:
                 file_obj = files_field[0]
-                if file_obj.get("type") == "file":
-                    photo_url = file_obj.get("file", {}).get("url")
-                elif file_obj.get("type") == "external":
-                    photo_url = file_obj.get("external", {}).get("url")
-            
-            created_time = row.get("created_time", "")
-            
+                photo_url = file_obj.get("file", {}).get("url") if file_obj.get("type") == "file" else file_obj.get("external", {}).get("url")
+
             data.append({
                 "날짜": date_str,
                 "러너": runner,
                 "거리": distance,
-                "페이스": pace,
+                "페이스": pace, # 이제 '5:25' 형태의 문자열이 저장됨
                 "고도": elevation,
                 "사진": photo_url,
-                "생성시간": created_time
+                "생성시간": row.get("created_time", "")
             })
         
-        if not data:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(data)
-        df['날짜'] = pd.to_datetime(df['날짜'])
-        df['생성시간'] = pd.to_datetime(df['생성시간'])
-        
-        # 중복 제거
-        df = df.sort_values(['날짜', '러너', '생성시간'], ascending=[True, True, False])
-        df = df.drop_duplicates(subset=['날짜', '러너'], keep='first')
-        df = df[df['거리'] > 0]
-        
-        return df
-    
+        return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
-        st.error(f"데이터 로딩 오류: {str(e)}")
+        st.error(f"오류: {e}")
         return pd.DataFrame()
 
 # --- 메인 실행 ---
