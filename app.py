@@ -31,15 +31,16 @@ def pace_to_seconds(pace_str):
         if not pace_str or pd.isna(pace_str) or pace_str == "N/A":
             return None
         pace_str = str(pace_str).strip()
-        pace_str = pace_str.replace("'", ":").replace('"', "").replace("’", ":").replace("´", ":")
+        # 다양한 형식 지원: 5:30, 5'30, 5'30", 5:30"
+        pace_str = pace_str.replace("'", ":").replace('"', "")
         if ":" not in pace_str:
             return None
         parts = pace_str.split(':')
         if len(parts) != 2:
             return None
-        minutes = float(parts[0].strip())
-        seconds = float(parts[1].strip())
-        return int(minutes * 60 + seconds)
+        minutes = int(float(parts[0]))  # 소수점 분 지원
+        seconds = int(float(parts[1]))
+        return minutes * 60 + seconds
     except:
         return None
 
@@ -193,14 +194,10 @@ for idx, member in enumerate(crew_list):
             change_pct = 0 if tw_dist == 0 else 100
         
         # 평균 페이스: 전체 데이터에서 최근 7개(또는 7개 미만) 유효 페이스 평균
-        if not m_all.empty:
-            m_all_sorted = m_all.sort_values('날짜', ascending=False)
-            recent_runs = m_all_sorted.head(7)
-            recent_runs['페이스_초'] = recent_runs['페이스'].apply(pace_to_seconds)
-            valid_paces = recent_runs['페이스_초'].dropna()
-            avg_pace_str = seconds_to_pace(valid_paces.mean()) if len(valid_paces) > 0 else "N/A"
-        else:
-            avg_pace_str = "N/A"
+        m_all['페이스_초'] = m_all['페이스'].apply(pace_to_seconds)
+        recent_runs = m_all.nlargest(7, '날짜')  # 최근 7개 런닝 (날짜 기준 내림차순)
+        valid_paces = recent_runs['페이스_초'].dropna()
+        avg_pace_str = seconds_to_pace(valid_paces.mean()) if len(valid_paces) > 0 else "N/A"
         
         if not m_all.empty:
             last_run_date = m_all['날짜'].max()
