@@ -8,28 +8,44 @@ import requests
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 DATABASE_ID = os.environ.get("DATABASE_ID")
 
-st.set_page_config(page_title="러닝 크루 대시보드", layout="wide")
+st.set_page_config(page_title="러닝 크루 대시보드", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. CSS 스타일 (모바일에서 큼직하게 보이도록 카드 디자인 수정)
+# 2. CSS 스타일 (S25 등 모바일 기기에서 가로 배치 강제)
 st.markdown("""
 <style>
-    .main { background-color: #f9fafb; }
-    .section-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
-    .total-distance-card { background: linear-gradient(to right, #ecfdf5, #d1fae5); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #86efac; }
+    /* 기본 배경 및 패딩 */
+    .main { background-color: #f9fafb; padding: 5px !important; }
     
-    /* 크루 카드 디자인 */
-    .member-card { border: 1px solid #e5e7eb; border-radius: 15px; padding: 15px; margin-bottom: 10px; background: white; text-align: center; }
-    .crew-photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #3b82f6; margin: 0 auto 10px; }
-    .crew-name { font-size: 18px; font-weight: 800; color: #1f2937; margin-bottom: 10px; }
+    /* [핵심] 모바일에서도 컬럼을 가로로 유지 */
+    [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important; /* 줄바꿈 절대 방지 */
+        width: 100% !important;
+        gap: 5px !important;
+    }
     
-    /* 스탯 박스 (세로형에서는 조금 더 시원하게 배치) */
-    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px thin #f3f4f6; }
-    .stat-label { color: #6b7280; font-size: 13px; font-weight: 600; }
-    .stat-value { color: #111827; font-size: 14px; font-weight: 700; }
+    /* 각 컬럼의 너비를 4등분 */
+    [data-testid="column"] {
+        width: 24% !important;
+        flex: 1 1 24% !important;
+        min-width: 0px !important; /* 최소 너비 제한 해제 */
+    }
+
+    .section-card { background: white; border-radius: 8px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); margin-bottom: 10px; }
+    
+    /* 크루 사진 크기 축소 (S25 화면 폭에 맞춤) */
+    .crew-photo { width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 5px; object-fit: cover; border: 2px solid #3b82f6; display: block; }
+    .crew-avatar { width: 50px; height: 50px; border-radius: 50%; background: #e5e7eb; margin: 0 auto 5px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    
+    /* 스탯 박스 컴팩트화 */
+    .crew-stat-box { border-radius: 4px; padding: 3px 1px; margin: 2px 0; font-size: 10px; text-align: center; display: flex; flex-direction: column; justify-content: center; background: #f8fafc; }
+    .stat-label { font-size: 8px; color: #64748b; font-weight: 600; }
+    .stat-value { font-size: 10px; font-weight: 700; color: #0f172a; }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. 데이터 로직 (가중 평균 및 사진 링크 만료 해결 포함)
+# 3. 유틸리티 및 데이터 로직 (기존과 동일)
 def mps_to_pace_str(mps):
     if not mps or mps <= 0: return "N/A"
     sec = 1000 / mps
@@ -53,19 +69,14 @@ def fetch_data():
         rows = []
         for r in res.json().get("results", []):
             p = r.get("properties", {})
-            # 사진 추출 로직 최적화
             files = p.get("사진", {}).get("files", [])
-            img = None
-            if files:
-                f = files[0]
-                img = f.get("file", {}).get("url") if f.get("type") == "file" else f.get("external", {}).get("url")
+            img = files[0].get("file", {}).get("url") if files and files[0].get("type") == "file" else (files[0].get("external", {}).get("url") if files else None)
             
             rows.append({
                 "날짜": p.get("날짜", {}).get("date", {}).get("start", "")[:10],
                 "러너": p.get("러너", {}).get("select", {}).get("name", "Unknown"),
                 "거리": p.get("거리", {}).get("number", 0) if (p.get("거리", {}).get("number") or 0) < 100 else p.get("거리", {}).get("number", 0)/1000,
                 "페이스": mps_to_pace_str(p.get("페이스", {}).get("number")),
-                "고도": p.get("고도", {}).get("number", 0),
                 "사진": img
             })
         df = pd.DataFrame(rows)
@@ -73,52 +84,41 @@ def fetch_data():
         return df
     except: return pd.DataFrame()
 
-# --- 실행 ---
+# --- 메인 실행 ---
 df = fetch_data()
 if df.empty: st.stop()
 
 st.title("🏃 러닝 크루 대시보드")
 
-# 총거리 요약
-tw_start = datetime.now() - timedelta(days=(datetime.now().weekday() + 1) % 7)
-tw_dist = df[df['날짜'] >= tw_start.replace(hour=0,minute=0)]['거리'].sum()
-st.markdown(f'<div class="total-distance-card"><h3>이번 주 크루 합산: {tw_dist:.2f} km</h3></div>', unsafe_allow_html=True)
+# 총거리 요약 (매우 작게)
+tw_start = (datetime.now() - timedelta(days=(datetime.now().weekday() + 1) % 7)).replace(hour=0,minute=0)
+tw_dist = df[df['날짜'] >= tw_start]['거리'].sum()
+st.markdown(f'<div style="text-align:center; font-weight:700; color:#047857; margin-bottom:10px;">이번 주: {tw_dist:.2f} km</div>', unsafe_allow_html=True)
 
-st.write("") # 간격
-
-# 크루 컨디션 - 가로/세로 자동 전환 레이아웃
+# 크루 컨디션 - S25에서도 무조건 가로 4열 배치
+cols = st.columns(4)
 crew_list = ["용남", "재탁", "주현", "유재"]
-cols = st.columns(len(crew_list)) # PC에선 가로, 모바일에선 자동으로 세로 전환됨
 
 for i, member in enumerate(crew_list):
     with cols[i]:
-        m_data = df[df['러너'] == member].head(7)
+        m_all = df[df['러너'] == member].head(7)
         
-        # 가중 평균 페이스 계산
-        avg_pace = "N/A"
-        if not m_data.empty:
-            m_data['p_sec'] = m_data['페이스'].apply(pace_to_seconds)
-            valid = m_data.dropna(subset=['p_sec', '거리'])
-            if not valid.empty:
-                avg_pace = seconds_to_pace((valid['p_sec'] * valid['거리']).sum() / valid['거리'].sum())
+        # 가중 평균 페이스
+        avg_p = "N/A"
+        if not m_all.empty:
+            m_all['p_sec'] = m_all['페이스'].apply(pace_to_seconds)
+            v = m_all.dropna(subset=['p_sec', '거리'])
+            if not v.empty:
+                avg_p = seconds_to_pace((v['p_sec'] * v['거리']).sum() / v['거리'].sum())
         
-        # 카드 시작
-        st.markdown(f'<div class="member-card">', unsafe_allow_html=True)
-        
-        # 사진
-        pic = m_data['사진'].dropna().iloc[0] if not m_data['사진'].dropna().empty else None
+        # 사진 표시
+        pic = m_all['사진'].dropna().iloc[0] if not m_all['사진'].dropna().empty else None
         if pic: st.markdown(f'<img src="{pic}" class="crew-photo">', unsafe_allow_html=True)
         else: st.markdown('<div class="crew-avatar">👤</div>', unsafe_allow_html=True)
         
-        # 이름 및 통계
-        st.markdown(f'<div class="crew-name">{member}</div>', unsafe_allow_html=True)
+        # 이름 및 통계 요약 (좁은 폭에 최적화)
+        st.markdown(f'<div style="text-align:center; font-size:11px; font-weight:800;">{member}</div>', unsafe_allow_html=True)
         
-        m_tw_dist = df[(df['러너']==member) & (df['날짜']>=tw_start.replace(hour=0,minute=0))]['거리'].sum()
-        
-        # 세로형에 최적화된 정보 나열
-        st.markdown(f'''
-            <div class="stat-row"><span class="stat-label">이번주 거리</span><span class="stat-value">{m_tw_dist:.2f}km</span></div>
-            <div class="stat-row"><span class="stat-label">평균 페이스</span><span class="stat-value">{avg_pace}</span></div>
-        ''', unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+        m_tw = df[(df['러너']==member) & (df['날짜']>=tw_start)]['거리'].sum()
+        st.markdown(f'<div class="crew-stat-box"><div class="stat-label">이번주</div><div class="stat-value">{m_tw:.1f}k</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="crew-stat-box"><div class="stat-label">페이스</div><div class="stat-value">{avg_p}</div></div>', unsafe_allow_html=True)
