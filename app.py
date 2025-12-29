@@ -58,27 +58,20 @@ def parse_notion_data(results):
     for page in results:
         props = page["properties"]
         
-        # 각 필드 파싱
         try:
             name = props.get("name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
             
-            # 날짜 파싱
             date_obj = props.get("날짜", {}).get("date", {})
             date_str = date_obj.get("start", "") if date_obj else ""
             
-            # 거리 (km)
             distance = props.get("거리", {}).get("number")
             
-            # 페이스 (분/km) - 포맷팅된 텍스트에서 추출
             pace_text = props.get("페이스", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
             
-            # 고도 (m)
             elevation = props.get("고도", {}).get("number", 0)
             
-            # 시간 (분) - runners 컬럼에서 추출
             time_text = props.get("runners", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
             
-            # 사람 정보
             people = props.get("사람", {}).get("people", [])
             person_name = people[0].get("name", "") if people else ""
             person_avatar = people[0].get("avatar_url", "") if people else ""
@@ -102,13 +95,10 @@ def parse_notion_data(results):
     if df.empty:
         return df
     
-    # 날짜를 datetime으로 변환
     df["date"] = pd.to_datetime(df["date"])
     
-    # 중복 제거 (같은 name, date, distance를 가진 레코드)
     df = df.drop_duplicates(subset=["name", "date", "distance"], keep="first")
     
-    # 페이스를 숫자로 변환 (분/km)
     df["pace_numeric"] = df["pace"].apply(lambda x: float(str(x).replace(",", "")) if x else 0)
     
     return df.sort_values("date", ascending=False).reset_index(drop=True)
@@ -131,7 +121,6 @@ def filter_by_week(df, week_offset=0):
 def main():
     st.title("🏃 러닝 크루 대시보드")
     
-    # 데이터 로드
     with st.spinner("데이터를 불러오는 중..."):
         df = fetch_notion_data()
     
@@ -139,22 +128,16 @@ def main():
         st.warning("데이터가 없습니다.")
         return
     
-    # 이번 주와 지난 주 데이터
     this_week_df = filter_by_week(df, 0)
     last_week_df = filter_by_week(df, -1)
     
-    # ===== 상단: 크루 현황 =====
     st.header("📊 크루 현황")
     
     col1, col2, col3 = st.columns(3)
     
-    # 이번 주 총 거리
     this_week_total = this_week_df["distance"].sum()
-    
-    # 지난 주 총 거리
     last_week_total = last_week_df["distance"].sum()
     
-    # 전주 대비 증감률
     if last_week_total > 0:
         change_pct = ((this_week_total - last_week_total) / last_week_total) * 100
     else:
@@ -171,21 +154,17 @@ def main():
     
     st.divider()
     
-    # ===== 중단: 크루 컨디션 =====
     st.header("💪 크루 컨디션")
     
     crew_members = ["재탁", "유재", "주현", "용남"]
     
-    # 4개의 컬럼 생성
     cols = st.columns(4)
     
     for idx, member in enumerate(crew_members):
         with cols[idx]:
-            # 해당 크루원의 데이터 필터링
             member_this_week = this_week_df[this_week_df["person_name"] == member]
             member_last_week = last_week_df[last_week_df["person_name"] == member]
             
-            # 프로필 사진
             if not member_this_week.empty and member_this_week.iloc[0]["person_avatar"]:
                 try:
                     avatar_url = member_this_week.iloc[0]["person_avatar"]
@@ -199,15 +178,12 @@ def main():
             
             st.markdown(f"### {member}")
             
-            # 이번 주 누계
             this_week_distance = member_this_week["distance"].sum()
             st.metric("이번 주", f"{this_week_distance:.1f} km")
             
-            # 지난 주 누계
             last_week_distance = member_last_week["distance"].sum()
             st.metric("지난 주", f"{last_week_distance:.1f} km")
             
-            # 최근 7일 평균 페이스
             seven_days_ago = datetime.now() - timedelta(days=7)
             recent_7days = df[(df["person_name"] == member) & (df["date"] >= seven_days_ago)]
             
@@ -219,13 +195,11 @@ def main():
     
     st.divider()
     
-    # ===== 하단: Insight & Fun =====
     st.header("🏆 Insight & Fun")
     
     if not this_week_df.empty:
         col1, col2, col3 = st.columns(3)
         
-        # 1. 이 주의 마라토너 (가장 긴 거리)
         with col1:
             st.subheader("🏃 이 주의 마라토너")
             longest_run = this_week_df.loc[this_week_df["distance"].idxmax()]
@@ -235,7 +209,6 @@ def main():
             {longest_run['date'].strftime('%Y-%m-%d')}
             """)
         
-        # 2. 이 주의 등산가 (가장 높은 고도)
         with col2:
             st.subheader("⛰️ 이 주의 등산가")
             highest_elevation = this_week_df.loc[this_week_df["elevation"].idxmax()]
@@ -245,10 +218,8 @@ def main():
             {highest_elevation['date'].strftime('%Y-%m-%d')}
             """)
         
-        # 3. 이 주의 폭주기관차 (가장 빠른 페이스)
         with col3:
             st.subheader("⚡ 이 주의 폭주기관차")
-            # pace_numeric이 0보다 큰 것만 필터링
             valid_pace_df = this_week_df[this_week_df["pace_numeric"] > 0]
             if not valid_pace_df.empty:
                 fastest_pace = valid_pace_df.loc[valid_pace_df["pace_numeric"].idxmin()]
@@ -262,7 +233,6 @@ def main():
     else:
         st.info("이번 주 데이터가 없습니다.")
     
-    # 데이터 새로고침 버튼
     st.divider()
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
@@ -270,22 +240,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-이 코드의 주요 특징:
-
-1. **환경 변수 설정**: Streamlit secrets에서 NOTION_TOKEN과 DATABASE_ID를 가져옵니다
-2. **중복 제거**: 같은 name, date, distance를 가진 레코드는 자동으로 제거됩니다
-3. **주간 계산**: 월요일~일요일을 한 주로 계산합니다
-4. **반응형 디자인**: 모바일에서도 볼 수 있게 컬럼을 활용했습니다
-5. **캐싱**: 데이터를 1시간 동안 캐싱하여 API 호출을 최소화합니다
-6. **에러 처리**: 데이터 파싱 중 발생할 수 있는 에러를 처리합니다
-
-**GitHub에 올릴 때 필요한 파일들:**
-
-1. `requirements.txt`:
-```
-streamlit
-requests
-pandas
-Pillow
