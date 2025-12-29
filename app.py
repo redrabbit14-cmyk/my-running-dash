@@ -26,21 +26,32 @@ st.markdown("""
 
 # 3. 유틸리티 함수
 def pace_to_seconds(pace_str):
-    """페이스 문자열을 초 단위로 변환"""
+    """페이스 문자열을 초 단위로 변환 - 강화된 버전"""
     try:
-        if not pace_str or pd.isna(pace_str) or pace_str == "N/A":
+        if not pace_str or pd.isna(pace_str) or pace_str == "N/A" or pace_str.lower() in ["nan", "none", ""]:
             return None
+        
         pace_str = str(pace_str).strip()
-        # 다양한 형식 지원: 5:30, 5'30, 5'30", 5:30"
-        pace_str = pace_str.replace("'", ":").replace('"', "")
+        
+        # 공백, 특수문자 제거 및 정규화
+        pace_str = pace_str.replace("'", ":").replace('"', "").replace("’", ":").replace("´", ":").strip()
+        
+        # 숫자만 추출해서 : 기준으로 분리
         if ":" not in pace_str:
             return None
+        
         parts = pace_str.split(':')
         if len(parts) != 2:
             return None
-        minutes = int(float(parts[0]))  # 소수점 분 지원
-        seconds = int(float(parts[1]))
-        return minutes * 60 + seconds
+        
+        minutes = float(parts[0].strip())  # 소수점 지원
+        seconds = float(parts[1].strip())
+        
+        # 유효성 검사
+        if minutes < 0 or minutes > 20 or seconds < 0 or seconds >= 60:
+            return None
+        
+        return int(minutes * 60 + seconds)
     except:
         return None
 
@@ -194,10 +205,21 @@ for idx, member in enumerate(crew_list):
             change_pct = 0 if tw_dist == 0 else 100
         
         # 평균 페이스: 전체 데이터에서 최근 7개(또는 7개 미만) 유효 페이스 평균
-        m_all['페이스_초'] = m_all['페이스'].apply(pace_to_seconds)
-        recent_runs = m_all.nlargest(7, '날짜')  # 최근 7개 런닝 (날짜 기준 내림차순)
-        valid_paces = recent_runs['페이스_초'].dropna()
-        avg_pace_str = seconds_to_pace(valid_paces.mean()) if len(valid_paces) > 0 else "N/A"
+        if not m_all.empty:
+            m_all_sorted = m_all.sort_values('날짜', ascending=False)
+            m_all['페이스_초'] = m_all['페이스'].apply(pace_to_seconds)
+            recent_runs = m_all_sorted.head(7)  # 최근 7개 런닝
+            valid_paces = recent_runs['페이스_초'].dropna()
+            avg_pace_str = seconds_to_pace(valid_paces.mean()) if len(valid_paces) > 0 else "N/A"
+            
+            # 디버깅 정보 (배포시 삭제)
+            if st.checkbox(f"{member} 페이스 디버그", key=f"debug_{member}"):
+                st.write(f"**{member} 최근 7개 런닝 페이스 분석:**")
+                st.write(recent_runs[['날짜', '페이스', '페이스_초']].head())
+                st.write(f"유효 데이터: {len(valid_paces)}개")
+                st.write(f"평균: {valid_paces.mean():.1f}초 → {avg_pace_str}")
+        else:
+            avg_pace_str = "N/A"
         
         if not m_all.empty:
             last_run_date = m_all['날짜'].max()
