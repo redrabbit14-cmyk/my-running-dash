@@ -205,23 +205,34 @@ def main():
     
     for idx, member in enumerate(crew_members):
         with cols[idx]:
-            # 해당 크루원의 데이터 필터링
-            member_this_week = this_week_df[this_week_df["runner"] == member]
-            member_last_week = last_week_df[last_week_df["runner"] == member]
+            # 해당 크루원의 전체 데이터에서 사진 가져오기
+            member_all_data = df[df["runner"] == member]
             
             # 프로필 사진
-            if not member_this_week.empty and member_this_week.iloc[0]["photo_url"]:
+            photo_url = None
+            if not member_all_data.empty:
+                # 가장 최근 데이터에서 사진 찾기
+                for _, row in member_all_data.iterrows():
+                    if row["photo_url"]:
+                        photo_url = row["photo_url"]
+                        break
+            
+            if photo_url:
                 try:
-                    photo_url = member_this_week.iloc[0]["photo_url"]
                     response = requests.get(photo_url)
                     img = Image.open(BytesIO(response.content))
                     st.image(img, use_container_width=True)
-                except:
-                    st.image("https://via.placeholder.com/150", use_container_width=True)
+                except Exception as e:
+                    st.write(f"🏃 {member}")
+                    st.caption("사진 로드 실패")
             else:
-                st.image("https://via.placeholder.com/150", use_container_width=True)
+                st.write(f"🏃 {member}")
             
             st.markdown(f"### {member}")
+            
+            # 해당 크루원의 이번 주/지난 주 데이터
+            member_this_week = this_week_df[this_week_df["runner"] == member]
+            member_last_week = last_week_df[last_week_df["runner"] == member]
             
             # 이번 주 누계
             this_week_distance = member_this_week["distance"].sum()
@@ -245,6 +256,9 @@ def main():
     
     # ===== 하단: Insight & Fun =====
     st.header("🏆 Insight & Fun")
+    
+    # 디버깅: 이번 주 데이터 확인
+    st.write(f"이번 주 데이터: {len(this_week_df)}개")
     
     if not this_week_df.empty:
         col1, col2, col3 = st.columns(3)
@@ -284,7 +298,7 @@ def main():
             else:
                 st.info("페이스 기록이 없습니다.")
     else:
-        st.info("이번 주 데이터가 없습니다.")
+        st.info(f"이번 주 데이터가 없습니다. (이번 주: {get_week_range(datetime.now())[0].strftime('%Y-%m-%d')} ~ {get_week_range(datetime.now())[1].strftime('%Y-%m-%d')})")
     
     # 데이터 새로고침 버튼
     st.divider()
