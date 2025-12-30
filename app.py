@@ -124,7 +124,7 @@ def parse_notion_data(results):
         return df
     
     # 날짜를 datetime으로 변환
-    df["date"] = pd.to_datetime(df["date"])
+    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
     
     # 중복 제거
     df = df.drop_duplicates(subset=["name", "date", "distance"], keep="first")
@@ -136,9 +136,9 @@ def get_week_range(date):
     weekday = date.weekday()
     monday = date - timedelta(days=weekday)
     sunday = monday + timedelta(days=6)
-    # 시간 정보를 00:00:00으로 설정
-    monday = pd.Timestamp(monday.replace(hour=0, minute=0, second=0, microsecond=0))
-    sunday = pd.Timestamp(sunday.replace(hour=23, minute=59, second=59, microsecond=999999))
+    # 시간 정보를 00:00:00으로 설정하고 timezone 제거
+    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    sunday = sunday.replace(hour=23, minute=59, second=59, microsecond=999999)
     return monday, sunday
 
 def filter_by_week(df, week_offset=0):
@@ -232,7 +232,7 @@ def main():
             st.metric("지난 주", f"{last_week_distance:.1f} km")
             
             # 최근 7일 평균 페이스
-            seven_days_ago = pd.Timestamp(datetime.now()) - pd.Timedelta(days=7)
+            seven_days_ago = datetime.now() - timedelta(days=7)
             recent_7days = df[(df["runner"] == member) & (df["date"] >= seven_days_ago)]
             
             if not recent_7days.empty and recent_7days["pace"].sum() > 0:
