@@ -144,6 +144,10 @@ def filter_by_week(df, week_offset=0):
     target_date = today + timedelta(weeks=week_offset)
     monday, sunday = get_week_range(target_date)
     
+    # datetime을 pandas Timestamp로 변환
+    monday = pd.Timestamp(monday)
+    sunday = pd.Timestamp(sunday)
+    
     return df[(df["date"] >= monday) & (df["date"] <= sunday)]
 
 def main():
@@ -228,7 +232,7 @@ def main():
             st.metric("지난 주", f"{last_week_distance:.1f} km")
             
             # 최근 7일 평균 페이스
-            seven_days_ago = datetime.now() - timedelta(days=7)
+            seven_days_ago = pd.Timestamp(datetime.now() - timedelta(days=7))
             recent_7days = df[(df["runner"] == member) & (df["date"] >= seven_days_ago)]
             
             if not recent_7days.empty and recent_7days["pace"].sum() > 0:
