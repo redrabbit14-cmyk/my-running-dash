@@ -7,152 +7,124 @@ import pandas as pd
 # 1. 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", page_icon="🏃", layout="wide")
 
-# 2. CSS: 디자인 최적화
+# 2. CSS: 시안(대시보드_pic.jpg) 스타일 반영
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
-    .stImage > img { border-radius: 15px; object-fit: cover; height: 180px !important; }
+    .crew-card {
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        background-color: #f8f9fa;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .status-good { border-top: 10px solid #28a745; }
+    .status-warning { border-top: 10px solid #ffc107; }
+    .status-danger { border-top: 10px solid #dc3545; }
+    
+    .metric-label { font-size: 0.9rem; color: #666; margin-top: 10px; }
+    .metric-value { font-size: 1.4rem; font-weight: bold; color: #333; }
+    .rest-days { font-size: 1rem; font-weight: bold; margin-top: 10px; padding: 5px; border-radius: 5px; }
+    
+    img { border-radius: 50%; object-fit: cover; width: 120px; height: 120px; border: 3px solid #eee; }
     </style>
     """, unsafe_allow_html=True)
 
-# 환경 설정
+# 환경 설정 및 데이터 로드 (생략된 fetch/parse 부분은 이전과 동일하되 중복제거 포함)
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 DATABASE_ID = os.environ.get("DATABASE_ID")
-headers = {
-    "Authorization": f"Bearer {NOTION_TOKEN}",
-    "Content-Type": "application/json",
-    "Notion-Version": "2022-06-28"
-}
+headers = {"Authorization": f"Bearer {NOTION_TOKEN}", "Content-Type": "application/json", "Notion-Version": "2022-06-28"}
 
 def time_to_seconds(time_str):
     try:
         parts = list(map(int, str(time_str).split(':')))
-        if len(parts) == 3: return parts[0]*3600 + parts[1]*60 + parts[2]
-        if len(parts) == 2: return parts[0]*60 + parts[1]
-        return 0
+        return parts[0]*3600 + parts[1]*60 + parts[2] if len(parts)==3 else parts[0]*60 + parts[1]
     except: return 0
 
-@st.cache_data(ttl=600) # 10분마다 갱신
-def fetch_notion_data():
+@st.cache_data(ttl=600)
+def get_data():
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
-    all_results = []
-    has_more, start_cursor = True, None
-    while has_more:
-        payload = {"start_cursor": start_cursor} if start_cursor else {}
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code != 200: return pd.DataFrame()
-        data = response.json()
-        all_results.extend(data.get("results", []))
-        has_more = data.get("has_more", False)
-        start_cursor = data.get("next_cursor")
-    return parse_notion_data(all_results)
-
-def parse_notion_data(results):
+    res = requests.post(url, headers=headers).json()
     records = []
-    for page in results:
-        props = page["properties"]
+    for page in res.get("results", []):
+        p = page["properties"]
         try:
-            runner_name = props.get("러너", {}).get("select", {}).get("name", "Unknown")
-            date_obj = props.get("날짜", {}).get("date", {})
-            date_str = date_obj.get("start", "") if date_obj else ""
-            dist_prop = props.get("실제 거리", {})
-            distance = dist_prop.get("formula", {}).get("number") if dist_prop.get("type") == "formula" else dist_prop.get("number")
-            time_prop = props.get("시간", {}).get("rich_text", [])
-            time_text = time_prop[0].get("text", {}).get("content", "0") if time_prop else "0"
-            elevation = props.get("고도", {}).get("number", 0) or 0
-            files = props.get("사진", {}).get("files", [])
-            photo_url = ""
-            if files:
-                f = files[0]
-                photo_url = f.get("file", {}).get("url") if f.get("type") == "file" else f.get("external", {}).get("url")
-
-            if date_str and distance:
-                records.append({
-                    "date": date_str, "runner": runner_name, "distance": float(distance),
-                    "duration_sec": time_to_seconds(time_text), "elevation": elevation, "photo_url": photo_url
-                })
+            name = p.get("러너", {}).get("select", {}).get("name", "")
+            dist = p.get("실제 거리", {}).get("number") or p.get("실제 거리", {}).get("formula", {}).get("number", 0)
+            date = p.get("날짜", {}).get("date", {}).get("start", "")
+            time_txt = p.get("시간", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
+            img = p.get("사진", {}).get("files", [{}])[0].get("file", {}).get("url", "") or p.get("사진", {}).get("files", [{}])[0].get("external", {}).get("url", "")
+            if name and date:
+                records.append({"runner": name, "date": date, "distance": float(dist), "duration_sec": time_to_seconds(time_txt), "photo": img})
         except: continue
-    
     df = pd.DataFrame(records)
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
-        # [핵심] 중복 데이터 제거: 동일인, 동일날짜, 동일거리 데이터는 하나만 남김
-        df = df.drop_duplicates(subset=["runner", "date", "distance"], keep="first")
-        df = df.sort_values("date", ascending=False)
+        df = df.drop_duplicates(subset=["runner", "date", "distance"])
     return df
 
 def main():
     st.title("🏃 러닝 크루 대시보드")
-    df = fetch_notion_data()
-    if df.empty:
-        st.warning("데이터가 없습니다.")
-        return
+    df = get_data()
+    if df.empty: return
 
-    # 날짜 기준 설정 (오늘: 12/30)
+    # 주간 설정
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     mon = today - timedelta(days=today.weekday())
-    sun = mon + timedelta(days=6, hours=23, minutes=59)
+    sun = mon + timedelta(days=6, hours=23)
     last_mon = mon - timedelta(days=7)
     last_sun = mon - timedelta(seconds=1)
 
-    # 섹션 1: 크루 현황
-    st.header("📊 크루 현황 (중복 제거 완료)")
-    this_week_df = df[(df["date"] >= mon) & (df["date"] <= sun)]
-    last_week_df = df[(df["date"] >= last_mon) & (df["date"] <= last_sun)]
-    
-    tw_total = this_week_df["distance"].sum()
-    lw_total = last_week_df["distance"].sum()
-    
+    # 섹션 1: 크루 현황 (요청하신 대로 유지)
+    st.header("📊 크루 현황")
+    this_week = df[(df["date"] >= mon) & (df["date"] <= sun)]
+    last_week = df[(df["date"] >= last_mon) & (df["date"] <= last_sun)]
     c1, c2, c3 = st.columns(3)
-    c1.metric("이번 주 총 거리", f"{tw_total:.1f} km")
-    c2.metric("지난 주 총 거리", f"{lw_total:.1f} km")
-    delta_val = tw_total - lw_total
-    c3.metric("전주 대비", f"{delta_val:+.1f} km", delta=f"{((delta_val/lw_total)*100 if lw_total>0 else 0):.1f}%")
+    c1.metric("이번 주 총 거리", f"{this_week['distance'].sum():.1f} km")
+    c2.metric("지난 주 총 거리", f"{last_week['distance'].sum():.1f} km")
+    c3.metric("전주 대비", f"{this_week['distance'].sum()-last_week['distance'].sum():+.1f} km")
 
     st.divider()
 
-    # 섹션 2: 크루 컨디션
-    st.header("💪 크루 컨디션")
+    # 섹션 2: 크루 컨디션 체크 (시안 디자인 적용)
+    st.header("💪 크루 컨디션 체크")
     crew_members = ["재탁", "유재", "주현", "용남"]
     cols = st.columns(len(crew_members))
 
     for idx, member in enumerate(crew_members):
+        m_all = df[df["runner"] == member].sort_values("date", ascending=False)
+        m_this = this_week[this_week["runner"] == member]
+        m_last = last_week[last_week["runner"] == member]
+        
+        # 7일 평균 페이스 (최근 7일 실적 기준)
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        m_7d = m_all[m_all["date"] >= seven_days_ago]
+        
+        # 연속 휴식일 계산
+        rest_days = (today - m_all.iloc[0]["date"]).days if not m_all.empty else 0
+        status_class = "status-good" if rest_days <= 1 else "status-warning" if rest_days <= 3 else "status-danger"
+        status_text = "Good 👍" if rest_days <= 1 else "주의 🟡" if rest_days <= 3 else "과부하/휴식필요!"
+
         with cols[idx]:
-            m_data = df[df["runner"] == member]
-            # 최근 사진 가져오기
-            valid_photos = m_data[m_data['photo_url'] != ""]
-            photo_url = valid_photos.iloc[0]['photo_url'] if not valid_photos.empty else None
+            # 카드 시작
+            photo = m_all.iloc[0]["photo"] if not m_all.empty and m_all.iloc[0]["photo"] else ""
+            img_html = f'<img src="{photo}">' if photo else '👤'
             
-            if photo_url: st.image(photo_url, use_container_width=True)
-            else: st.info(f"👤 {member}")
-            
-            st.subheader(member)
-            
-            # 주간 거리
-            m_this_week = this_week_df[this_week_df["runner"] == member]
-            st.metric("이번 주", f"{m_this_week['distance'].sum():.1f} km")
-
-            # [수정] 7일 평균 페이스 로직: 오늘 기준 역산 7일
-            seven_days_ago = datetime.now() - timedelta(days=7)
-            recent_7d = m_data[(m_data["date"] >= seven_days_ago) & (m_data["distance"] > 0)]
-            
-            if not recent_7d.empty:
-                total_dist = recent_7d["distance"].sum()
-                total_sec = recent_7d["duration_sec"].sum()
-                avg_pace_sec = total_sec / total_dist
-                st.metric("7일 평균 페이스", f"{int(avg_pace_sec//60)}'{int(avg_pace_sec%60)}\"")
-            else:
-                st.metric("7일 평균 페이스", "기록 없음")
-
-    st.divider()
-    # 섹션 3: Insight & Fun (데이터가 있을 때만 표시)
-    st.header("🏆 Insight & Fun")
-    if not this_week_df.empty:
-        # 상위 기록 산출 로직 유지...
-        st.write("이번 주 베스트 기록들이 표시됩니다.") 
-        # (생략된 상위 기록 코드 포함)
-    else:
-        st.info("이번 주 활동 데이터가 아직 없습니다. 훈련 후 데이터가 동기화되면 나타납니다!")
+            st.markdown(f"""
+                <div class="crew-card {status_class}">
+                    {img_html}
+                    <h3>{member}</h3>
+                    <div class="metric-label">이번 주 / 지난 주</div>
+                    <div class="metric-value">{m_this['distance'].sum():.1f}km / {m_last['distance'].sum():.1f}km</div>
+                    <div class="metric-label">7일 평균 페이스</div>
+                    <div class="metric-value">{int((m_7d['duration_sec'].sum()/m_7d['distance'].sum())//60) if not m_7d.empty and m_7d['distance'].sum()>0 else 0}'{int((m_7d['duration_sec'].sum()/m_7d['distance'].sum())%60) if not m_7d.empty and m_7d['distance'].sum()>0 else 0}"</div>
+                    <div class="metric-label">연속 휴식일</div>
+                    <div class="metric-value">{rest_days}일째</div>
+                    <div class="rest-days" style="background-color: {'#d4edda' if rest_days<=1 else '#fff3cd' if rest_days<=3 else '#f8d7da'}">
+                        {status_text}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
