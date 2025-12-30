@@ -154,7 +154,10 @@ def get_ai_coach_recommendation(member_data: pd.DataFrame, member_name: str) -> 
         return f"{member_name}: AI 분석 중 오류 발생"
 
 def main():
-    st.title("🏃 러닝 크루 대시보드")
+    st.markdown(
+        "<h3 style='margin-top:0; margin-bottom:0.5rem;'>🏃 러닝 크루 대시보드</h3>",
+        unsafe_allow_html=True
+    )
 
     df = get_notion_data()
     if df.empty:
