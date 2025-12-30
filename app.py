@@ -59,50 +59,47 @@ def parse_notion_data(results):
     
     st.write(f"파싱 시작: {len(results)}개 항목")
     
-    # 첫 번째 데이터 샘플 확인
-    if results:
-        st.write("**첫 번째 페이지 데이터 샘플:**")
-        first_props = results[0]["properties"]
-        
-        # 각 필드별로 확인
-        st.write("제목(빈문자열):", first_props.get("", {}))
-        st.write("날짜:", first_props.get("날짜", {}))
-        st.write("실제 거리:", first_props.get("실제 거리", {}))
-        st.write("사람:", first_props.get("사람", {}))
-    
     for idx, page in enumerate(results):
         props = page["properties"]
         
         try:
-            # 제목 (빈 문자열 컬럼)
-            name = props.get("", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            # 제목 (빈 문자열 컬럼) - 비어있을 수 있음
+            title_prop = props.get("", {}).get("title", [])
+            name = title_prop[0].get("text", {}).get("content", "") if title_prop else f"Run-{idx}"
             
             # 날짜
             date_obj = props.get("날짜", {}).get("date", {})
             date_str = date_obj.get("start", "") if date_obj else ""
             
-            # 거리 (실제 거리)
-            distance = props.get("실제 거리", {}).get("number")
+            # 거리 (실제 거리) - formula 타입
+            distance_prop = props.get("실제 거리", {})
+            if distance_prop.get("type") == "formula":
+                distance = distance_prop.get("formula", {}).get("number")
+            else:
+                distance = distance_prop.get("number")
             
             # 페이스
-            pace_text = props.get("페이스", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
+            pace_prop = props.get("페이스", {}).get("rich_text", [])
+            pace_text = pace_prop[0].get("text", {}).get("content", "0") if pace_prop else "0"
             
             # 고도
-            elevation = props.get("고도", {}).get("number", 0)
+            elevation_prop = props.get("고도", {})
+            if elevation_prop.get("type") == "formula":
+                elevation = elevation_prop.get("formula", {}).get("number", 0)
+            else:
+                elevation = elevation_prop.get("number", 0)
             
             # 시간 (runners)
-            time_text = props.get("runners", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
+            time_prop = props.get("runners", {}).get("rich_text", [])
+            time_text = time_prop[0].get("text", {}).get("content", "0") if time_prop else "0"
             
             # 사람
             people = props.get("사람", {}).get("people", [])
             person_name = people[0].get("name", "") if people else ""
             person_avatar = people[0].get("avatar_url", "") if people else ""
             
-            # 디버깅: 첫 5개 항목의 값 출력
-            if idx < 5:
-                st.write(f"항목 {idx}: name={name}, date={date_str}, distance={distance}, person={person_name}")
-            
-            if name and date_str and distance:
+            # name 조건 제거, date와 distance만 확인
+            if date_str and distance:
                 records.append({
                     "name": name,
                     "date": date_str,
