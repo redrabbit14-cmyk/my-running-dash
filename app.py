@@ -59,7 +59,18 @@ def parse_notion_data(results):
     
     st.write(f"파싱 시작: {len(results)}개 항목")
     
-    for page in results:
+    # 첫 번째 데이터 샘플 확인
+    if results:
+        st.write("**첫 번째 페이지 데이터 샘플:**")
+        first_props = results[0]["properties"]
+        
+        # 각 필드별로 확인
+        st.write("제목(빈문자열):", first_props.get("", {}))
+        st.write("날짜:", first_props.get("날짜", {}))
+        st.write("실제 거리:", first_props.get("실제 거리", {}))
+        st.write("사람:", first_props.get("사람", {}))
+    
+    for idx, page in enumerate(results):
         props = page["properties"]
         
         try:
@@ -87,6 +98,10 @@ def parse_notion_data(results):
             person_name = people[0].get("name", "") if people else ""
             person_avatar = people[0].get("avatar_url", "") if people else ""
             
+            # 디버깅: 첫 5개 항목의 값 출력
+            if idx < 5:
+                st.write(f"항목 {idx}: name={name}, date={date_str}, distance={distance}, person={person_name}")
+            
             if name and date_str and distance:
                 records.append({
                     "name": name,
@@ -99,7 +114,7 @@ def parse_notion_data(results):
                     "person_avatar": person_avatar
                 })
         except Exception as e:
-            st.warning(f"파싱 에러: {str(e)}")
+            st.warning(f"파싱 에러 (항목 {idx}): {str(e)}")
             continue
     
     st.write(f"파싱 완료: {len(records)}개 레코드")
