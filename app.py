@@ -7,7 +7,7 @@ import pandas as pd
 # 1. 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", page_icon="🏃", layout="wide")
 
-# 2. CSS: 시안 스타일 반영
+# 2. CSS: 카드 스타일
 st.markdown("""
     <style>
     .crew-card {
@@ -25,14 +25,14 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # "HH:MM:SS" 또는 "MM:SS" 텍스트를 초로 변환
-def parse_time_to_seconds(time_str):
+def parse_time_to_seconds(time_str: str) -> int:
     if not time_str or time_str == "0":
         return 0
     try:
-        parts = str(time_str).strip().split(':')
-        if len(parts) == 3:  # HH:MM:SS
+        parts = str(time_str).strip().split(":")
+        if len(parts) == 3:      # HH:MM:SS
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        elif len(parts) == 2:  # MM:SS
+        elif len(parts) == 2:    # MM:SS
             return int(parts[0]) * 60 + int(parts[1])
         else:
             return int(parts[0]) if parts[0].isdigit() else 0
@@ -40,9 +40,10 @@ def parse_time_to_seconds(time_str):
         return 0
 
 @st.cache_data(ttl=600)
-def get_notion_data():
+def get_notion_data() -> pd.DataFrame:
     NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
     DATABASE_ID = os.environ.get("DATABASE_ID")
+
     headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
         "Content-Type": "application/json",
@@ -54,6 +55,7 @@ def get_notion_data():
     has_more = True
     next_cursor = None
 
+    # 전체 페이지 가져오기
     while has_more:
         payload = {"start_cursor": next_cursor} if next_cursor else {}
         res = requests.post(url, headers=headers, json=payload).json()
@@ -65,33 +67,33 @@ def get_notion_data():
     for page in all_pages:
         p = page["properties"]
         try:
-            # 3열 러너(선택)
+            # 러너(선택)
             name = p.get("러너", {}).get("select", {}).get("name", "")
 
-            # 4열 실제 거리(수식 number)
+            # 실제 거리(수식 number)
             dist_val = p.get("실제 거리", {}).get("number")
             if dist_val is None:
                 dist_val = p.get("실제 거리", {}).get("formula", {}).get("number", 0)
 
-            # 2열 날짜(날짜)
+            # 날짜
             date_str = p.get("날짜", {}).get("date", {}).get("start", "")
 
-            # 7열 시간(텍스트)
+            # 시간(텍스트)
             time_rich_text = p.get("시간", {}).get("rich_text", [])
             time_text = (
                 time_rich_text[0].get("text", {}).get("content", "0")
                 if time_rich_text else "0"
             )
 
-            # 10열 사진(텍스트) → 구글드라이브 공유 URL이 그대로 들어 있음
+            # 사진(텍스트) → rich_text.plain_text 에서 URL 읽기
             photo_prop = p.get("사진", {})
-            photo_rt = photo_prop.get("rich_text", [])
-            photo_url = (
-                photo_rt[0].get("text", {}).get("content", "")
-                if photo_rt else ""
-            )
+            photo_url = ""
+            if "rich_text" in photo_prop and photo_prop["rich_text"]:
+                # 첫 블록의 plain_text 사용
+                photo_url = photo_prop["rich_text"][0].get("plain_text", "") or \
+                            photo_prop["rich_text"][0].get("text", {}).get("content", "")
 
-            # 8열 고도(숫자)
+            # 고도(숫자)
             elev = p.get("고도", {}).get("number", 0) or 0
 
             if name and date_str:
@@ -110,34 +112,37 @@ def get_notion_data():
     if not df.empty:
         # 러너+날짜+거리 기준 중복 제거
         df = df.drop_duplicates(subset=["runner", "date", "distance"], keep="first")
-    return df.sort_values("date", ascending=False)
+        df = df.sort_values("date", ascending=False)
+    return df
 
 def main():
     st.title("🏃 러닝 크루 대시보드")
+
     df = get_notion_data()
     if df.empty:
         st.info("데이터를 불러오는 중입니다...")
         return
 
-    # 날짜 기준 (오늘)
+    # 오늘 기준 주간 계산
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     mon = today - timedelta(days=today.weekday())
     sun = mon + timedelta(days=6, hours=23, minutes=59)
     last_mon = mon - timedelta(days=7)
     last_sun = mon - timedelta(seconds=1)
 
-    # 섹션 1: 크루 현황
-    st.header("📊 크루 현황")
+    # 이번 주 / 지난 주 데이터
     this_week = df[(df["date"] >= mon) & (df["date"] <= sun)]
     last_week = df[(df["date"] >= last_mon) & (df["date"] <= last_sun)]
 
+    # 섹션 1: 크루 현황
+    st.header("📊 크루 현황")
     tw_total = this_week["distance"].sum()
     lw_total = last_week["distance"].sum()
+    diff = tw_total - lw_total
 
     c1, c2, c3 = st.columns(3)
     c1.metric("이번 주 크루 총합", f"{tw_total:.1f} km")
     c2.metric("지난 주 크루 총합", f"{lw_total:.1f} km")
-    diff = tw_total - lw_total
     c3.metric(
         "전주 대비 증감",
         f"{diff:+.1f} km",
@@ -165,16 +170,15 @@ def main():
 
         # 연속 휴식일
         rest_days = (today - m_all.iloc[0]["date"]).days if not m_all.empty else 0
-        card_class = (
-            "status-good" if rest_days <= 1
-            else "status-warning" if rest_days <= 3
-            else "status-danger"
-        )
-        status_text = (
-            "Good 🔥" if rest_days <= 1
-            else "주의 ⚠️" if rest_days <= 3
-            else "휴식필요 💤"
-        )
+        if rest_days <= 1:
+            card_class = "status-good"
+            status_text = "Good 🔥"
+        elif rest_days <= 3:
+            card_class = "status-warning"
+            status_text = "주의 ⚠️"
+        else:
+            card_class = "status-danger"
+            status_text = "휴식필요 💤"
 
         with cols[idx]:
             # 가장 최근 러닝의 사진 URL 사용
