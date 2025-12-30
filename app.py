@@ -59,28 +59,30 @@ def parse_notion_data(results):
     
     st.write(f"파싱 시작: {len(results)}개 항목")
     
-    # 첫 번째 페이지의 컬럼 이름들을 확인
-    if results:
-        st.write("**노션 컬럼 이름들:**")
-        st.write(list(results[0]["properties"].keys()))
-    
     for page in results:
         props = page["properties"]
         
         try:
-            name = props.get("name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            # 제목 (빈 문자열 컬럼)
+            name = props.get("", {}).get("title", [{}])[0].get("text", {}).get("content", "")
             
+            # 날짜
             date_obj = props.get("날짜", {}).get("date", {})
             date_str = date_obj.get("start", "") if date_obj else ""
             
-            distance = props.get("거리", {}).get("number")
+            # 거리 (실제 거리)
+            distance = props.get("실제 거리", {}).get("number")
             
+            # 페이스
             pace_text = props.get("페이스", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
             
+            # 고도
             elevation = props.get("고도", {}).get("number", 0)
             
+            # 시간 (runners)
             time_text = props.get("runners", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "0")
             
+            # 사람
             people = props.get("사람", {}).get("people", [])
             person_name = people[0].get("name", "") if people else ""
             person_avatar = people[0].get("avatar_url", "") if people else ""
