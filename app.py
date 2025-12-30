@@ -3,6 +3,16 @@ import requests
 import os
 from datetime import datetime, timedelta
 import pandas as pd
+import google.generativeai as genai
+
+# Google Gemini API 설정 (secrets.toml에서 불러오기)
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    AI_AVAILABLE = True
+except:
+    AI_AVAILABLE = False
+    st.warning("🤖 AI 코치: API 키를 확인해주세요 (.streamlit/secrets.toml)")
 
 # 크루 프로필 이미지 (깃허브 URL)
 PROFILE_IMAGES = {
@@ -29,6 +39,7 @@ st.markdown("""
     .metric-label { font-size: 0.85rem; color: #888; margin-top: 12px; }
     .metric-value { font-size: 1.25rem; font-weight: bold; color: #222; margin-bottom: 5px; }
     .profile-img { border-radius: 50%; object-fit: cover; width: 100px; height: 100px; border: 3px solid #f0f0f0; }
+    .ai-coach-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -111,6 +122,36 @@ def get_notion_data() -> pd.DataFrame:
         df = df.drop_duplicates(subset=["runner", "date", "distance"], keep="first")
         df = df.sort_values("date", ascending=False)
     return df
+
+# AI 코치 추천 생성
+def get_ai_coach_recommendation(member_data: pd.DataFrame, member_name: str) -> str:
+    if not AI_AVAILABLE or member_data.empty:
+        return f"{member_name}: 데이터 부족으로 추천 불가"
+    
+    # 최근 7일 데이터 요약
+    recent = member_data.tail(7)
+    total_dist = recent["distance"].sum()
+    total_time = recent["duration_sec"].sum()
+    avg_pace = total_time / total_dist if total_dist > 0 else 0
+    
+    # 최근 활동 빈도
+    days_active = len(recent[recent["distance"] > 0])
+    rest_days = 7 - days_active
+    
+    prompt = f"""
+    러너 {member_name}의 최근 7일 데이터:
+    - 총 거리: {total_dist:.1f}km
+    - 평균 페이스: {int(avg_pace//60)}'{int(avg_pace%60)}"
+    - 활동일: {days_active}일 (휴식일: {rest_days}일)
+    
+    1-2줄로 한국어 훈련 추천해줘. 구체적이고 실행 가능한 내용으로.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except:
+        return f"{member_name}: AI 분석 중 오류 발생"
 
 def main():
     st.title("🏃 러닝 크루 대시보드")
@@ -198,8 +239,10 @@ def main():
 
     st.divider()
 
-    # 섹션 3: Insight & Fun
+    # 섹션 3: Insight & Fun + AI 코치
     st.header("🏆 Insight & Fun")
+    
+    # 기존 인사이트
     if not this_week.empty:
         i1, i2, i3 = st.columns(3)
         with i1:
@@ -220,6 +263,35 @@ def main():
                 )
     else:
         st.info("이번 주 활동 데이터가 수집되면 랭킹이 표시됩니다.")
+
+    # AI 코치 섹션 (인사이트 & Fun 아래)
+    st.subheader("🤖 AI 코치 훈련추천")
+    
+    if st.button("🎯 추천받기", type="primary"):
+        recommendations = {}
+        progress_bar = st.progress(0)
+        
+        for i, member in enumerate(crew_members):
+            member_data = df[df["runner"] == member]
+            recommendations[member] = get_ai_coach_recommendation(member_data, member)
+            progress_bar.progress((i + 1) / len(crew_members))
+        
+        st.success("✅ AI 분석 완료!")
+        
+        # 2x2 그리드로 4명 추천 표시
+        cols = st.columns(2)
+        for idx, member in enumerate(crew_members):
+            with cols[idx % 2]:
+                st.markdown(f"""
+                    <div class="crew-card ai-coach-card">
+                        <h3 style="color:white;">{member}</h3>
+                        <div style="font-size:1.1rem; line-height:1.4;">
+                            {recommendations[member]}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("🎯 '추천받기' 버튼을 누르면 각 크루원별 맞춤 훈련을 AI가 추천합니다!")
 
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
