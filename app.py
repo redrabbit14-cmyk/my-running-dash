@@ -25,21 +25,90 @@ PROFILE_IMAGES = {
 # 1. 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", page_icon="🏃", layout="wide")
 
-# 2. CSS
+# 2. 전체 스타일 (배경, 카드 정리)
 st.markdown("""
     <style>
-    .crew-card {
-        border-radius: 15px; padding: 20px; text-align: center;
-        background-color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        margin-bottom: 20px; border: 1px solid #eee;
+    /* 전체 배경 톤 살짝 넣기 */
+    .stApp {
+        background-color: #f5f7fb;
     }
-    .status-good { border-top: 8px solid #28a745; }
-    .status-warning { border-top: 8px solid #ffc107; }
-    .status-danger { border-top: 8px solid #dc3545; }
-    .metric-label { font-size: 0.85rem; color: #888; margin-top: 12px; }
-    .metric-value { font-size: 1.25rem; font-weight: bold; color: #222; margin-bottom: 5px; }
-    .profile-img { border-radius: 50%; object-fit: cover; width: 100px; height: 100px; border: 3px solid #f0f0f0; }
-    .ai-coach-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+
+    /* 기본 텍스트 톤 조정 */
+    h1, h2, h3, h4, h5, h6 {
+        color: #222831;
+    }
+
+    /* 공통 카드 스타일 */
+    .crew-card {
+        border-radius: 16px;
+        padding: 18px;
+        text-align: center;
+        background-color: #ffffff;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+        margin-bottom: 18px;
+        border: 1px solid #e5e7eb;
+    }
+
+    /* 상태별 상단 바 + 연한 배경색 */
+    .status-good {
+        border-top: 8px solid #22c55e;
+        background: linear-gradient(180deg, #ecfdf3 0%, #ffffff 40%);
+    }
+    .status-warning {
+        border-top: 8px solid #facc15;
+        background: linear-gradient(180deg, #fef9c3 0%, #ffffff 40%);
+    }
+    .status-danger {
+        border-top: 8px solid #ef4444;
+        background: linear-gradient(180deg, #fee2e2 0%, #ffffff 40%);
+    }
+
+    .metric-label {
+        font-size: 0.80rem;
+        color: #6b7280;
+        margin-top: 10px;
+    }
+    .metric-value {
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 4px;
+    }
+    .profile-img {
+        border-radius: 50%;
+        object-fit: cover;
+        width: 86px;
+        height: 86px;
+        border: 3px solid #e5e7eb;
+        margin-bottom: 6px;
+    }
+
+    /* AI 코치 카드 */
+    .ai-coach-card {
+        border-radius: 16px;
+        padding: 18px;
+        text-align: left;
+        background: linear-gradient(135deg, #4f46e5 0%, #6366f1 40%, #a855f7 100%);
+        box-shadow: 0 4px 14px rgba(88, 28, 135, 0.35);
+        margin-bottom: 18px;
+        color: #f9fafb;
+        border: 1px solid rgba(191, 219, 254, 0.4);
+    }
+    .ai-coach-card h3 {
+        margin-top: 0;
+        margin-bottom: 6px;
+        color: #f9fafb;
+    }
+
+    /* 모바일에서 위아래 여백 살짝 줄이기 */
+    @media (max-width: 768px) {
+        .crew-card {
+            padding: 14px;
+        }
+        .ai-coach-card {
+            padding: 14px;
+        }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -126,39 +195,38 @@ def get_notion_data() -> pd.DataFrame:
 # AI 코치 추천 생성
 def get_ai_coach_recommendation(member_data: pd.DataFrame, member_name: str) -> str:
     if not AI_AVAILABLE or member_data.empty:
-        return f"{member_name}: 데이터 부족으로 추천 불가"
+        return f"{member_name}: 데이터 부족으로 가벼운 조깅 20~30분을 추천합니다."
     
-    # 최근 7일 데이터 요약
+    # 최근 7일 데이터
     recent = member_data[member_data["date"] >= (datetime.now() - timedelta(days=7))]
     if recent.empty:
-        return f"{member_name}: 최근 7일 데이터가 없어 가벼운 조깅 20~30분을 추천합니다."
+        return f"{member_name}: 최근 7일 활동이 없어, 20~30분 조깅으로 몸을 깨워보세요."
 
     total_dist = recent["distance"].sum()
     total_time = recent["duration_sec"].sum()
     avg_pace = total_time / total_dist if total_dist > 0 else 0
     
-    # 최근 활동 빈도
     days_active = len(recent[recent["distance"] > 0])
     rest_days = 7 - days_active
     
     prompt = f"""
     러너 {member_name}의 최근 7일 데이터:
     - 총 거리: {total_dist:.1f}km
-    - 평균 페이스(초/킬로 환산): {avg_pace:.1f}초/킬로
+    - 평균 페이스(초/킬로): {avg_pace:.1f}
     - 활동일: {days_active}일 (휴식일: {rest_days}일)
 
     위 정보를 바탕으로 {member_name}에게 맞는 러닝 훈련을 1~2줄 한국어로 추천해줘.
-    너무 장황하지 말고, 예: "가볍게 조깅 30분 + 스트라이드 5회" 이런 식으로 구체적인 세션 형태로 말해줘.
+    예시는 "가볍게 조깅 30분 + 스트라이드 5회" 처럼, 구체적인 세션 형태로.
     """
     
     try:
         response = model.generate_content(prompt)
         return response.text.strip()
     except:
-        return f"{member_name}: AI 분석 중 오류 발생"
+        return f"{member_name}: AI 분석 중 오류가 발생해, 오늘은 기분 좋은 조깅을 추천합니다."
 
 def main():
-    # 최상단 제목: st.header 사용 (섹션보다 살짝 크게)
+    # 최상단 제목
     st.header("🏃 러닝 크루 대시보드")
 
     df = get_notion_data()
@@ -267,7 +335,7 @@ def main():
     else:
         st.info("이번 주 활동 데이터가 수집되면 랭킹이 표시됩니다.")
 
-    # AI 코치 섹션 (Insight & Fun 아래)
+    # AI 코치 섹션
     st.subheader("🤖 AI 코치 훈련추천")
     
     if st.button("🎯 추천받기", type="primary"):
@@ -281,14 +349,13 @@ def main():
         
         st.success("✅ AI 분석 완료!")
         
-        # 2x2 그리드로 4명 추천 표시
         cols_rec = st.columns(2)
         for idx, member in enumerate(crew_members):
             with cols_rec[idx % 2]:
                 st.markdown(f"""
-                    <div class="crew-card ai-coach-card">
-                        <h3 style="color:white;">{member}</h3>
-                        <div style="font-size:1.1rem; line-height:1.4;">
+                    <div class="ai-coach-card">
+                        <h3>{member}</h3>
+                        <div style="font-size:1.0rem; line-height:1.4;">
                             {recommendations[member]}
                         </div>
                     </div>
