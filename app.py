@@ -129,7 +129,10 @@ def get_ai_coach_recommendation(member_data: pd.DataFrame, member_name: str) -> 
         return f"{member_name}: 데이터 부족으로 추천 불가"
     
     # 최근 7일 데이터 요약
-    recent = member_data.tail(7)
+    recent = member_data[member_data["date"] >= (datetime.now() - timedelta(days=7))]
+    if recent.empty:
+        return f"{member_name}: 최근 7일 데이터가 없어 가벼운 조깅 20~30분을 추천합니다."
+
     total_dist = recent["distance"].sum()
     total_time = recent["duration_sec"].sum()
     avg_pace = total_time / total_dist if total_dist > 0 else 0
@@ -141,10 +144,11 @@ def get_ai_coach_recommendation(member_data: pd.DataFrame, member_name: str) -> 
     prompt = f"""
     러너 {member_name}의 최근 7일 데이터:
     - 총 거리: {total_dist:.1f}km
-    - 평균 페이스: {int(avg_pace//60)}'{int(avg_pace%60)}"
+    - 평균 페이스(초/킬로 환산): {avg_pace:.1f}초/킬로
     - 활동일: {days_active}일 (휴식일: {rest_days}일)
-    
-    1-2줄로 한국어 훈련 추천해줘. 구체적이고 실행 가능한 내용으로.
+
+    위 정보를 바탕으로 {member_name}에게 맞는 러닝 훈련을 1~2줄 한국어로 추천해줘.
+    너무 장황하지 말고, 예: "가볍게 조깅 30분 + 스트라이드 5회" 이런 식으로 구체적인 세션 형태로 말해줘.
     """
     
     try:
@@ -154,10 +158,8 @@ def get_ai_coach_recommendation(member_data: pd.DataFrame, member_name: str) -> 
         return f"{member_name}: AI 분석 중 오류 발생"
 
 def main():
-    st.markdown(
-        "<h3 style='margin-top:0; margin-bottom:0.5rem;'>🏃 러닝 크루 대시보드</h3>",
-        unsafe_allow_html=True
-    )
+    # 최상단 제목: st.header 사용 (섹션보다 살짝 크게)
+    st.header("🏃 러닝 크루 대시보드")
 
     df = get_notion_data()
     if df.empty:
@@ -175,7 +177,7 @@ def main():
     last_week = df[(df["date"] >= last_mon) & (df["date"] <= last_sun)]
 
     # 섹션 1: 크루 현황
-    st.header("📊 크루 현황")
+    st.subheader("📊 크루 현황")
     tw_total = this_week["distance"].sum()
     lw_total = last_week["distance"].sum()
     diff = tw_total - lw_total
@@ -192,7 +194,7 @@ def main():
     st.divider()
 
     # 섹션 2: 크루 컨디션 체크
-    st.header("💪 크루 컨디션 체크")
+    st.subheader("💪 크루 컨디션 체크")
     crew_members = ["재탁", "유재", "주현", "용남"]
     cols = st.columns(len(crew_members))
 
@@ -242,10 +244,8 @@ def main():
 
     st.divider()
 
-    # 섹션 3: Insight & Fun + AI 코치
-    st.header("🏆 Insight & Fun")
-    
-    # 기존 인사이트
+    # 섹션 3: Insight & Fun
+    st.subheader("🏆 Insight & Fun")
     if not this_week.empty:
         i1, i2, i3 = st.columns(3)
         with i1:
@@ -267,7 +267,7 @@ def main():
     else:
         st.info("이번 주 활동 데이터가 수집되면 랭킹이 표시됩니다.")
 
-    # AI 코치 섹션 (인사이트 & Fun 아래)
+    # AI 코치 섹션 (Insight & Fun 아래)
     st.subheader("🤖 AI 코치 훈련추천")
     
     if st.button("🎯 추천받기", type="primary"):
@@ -282,9 +282,9 @@ def main():
         st.success("✅ AI 분석 완료!")
         
         # 2x2 그리드로 4명 추천 표시
-        cols = st.columns(2)
+        cols_rec = st.columns(2)
         for idx, member in enumerate(crew_members):
-            with cols[idx % 2]:
+            with cols_rec[idx % 2]:
                 st.markdown(f"""
                     <div class="crew-card ai-coach-card">
                         <h3 style="color:white;">{member}</h3>
