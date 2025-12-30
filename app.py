@@ -4,10 +4,18 @@ import os
 from datetime import datetime, timedelta
 import pandas as pd
 
+# 크루 프로필 이미지 (깃허브 URL)
+PROFILE_IMAGES = {
+    "용남": "https://github.com/redrabbit14-cmyk/my-running-dash/raw/main/images/%EC%9A%A9%EB%82%A8.jpg",
+    "주현": "https://github.com/redrabbit14-cmyk/my-running-dash/raw/main/images/%EC%A3%BC%ED%98%84.jpg",
+    "유재": "https://github.com/redrabbit14-cmyk/my-running-dash/raw/main/images/%EC%9C%A0%EC%9E%AC.jpg",
+    "재탁": "https://github.com/redrabbit14-cmyk/my-running-dash/raw/main/images/%EC%9E%AC%ED%83%81.jpg",
+}
+
 # 1. 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", page_icon="🏃", layout="wide")
 
-# 2. CSS: 카드 스타일
+# 2. CSS
 st.markdown("""
     <style>
     .crew-card {
@@ -55,7 +63,6 @@ def get_notion_data() -> pd.DataFrame:
     has_more = True
     next_cursor = None
 
-    # 전체 페이지 가져오기
     while has_more:
         payload = {"start_cursor": next_cursor} if next_cursor else {}
         res = requests.post(url, headers=headers, json=payload).json()
@@ -85,14 +92,6 @@ def get_notion_data() -> pd.DataFrame:
                 if time_rich_text else "0"
             )
 
-            # 사진(텍스트) → rich_text.plain_text 에서 URL 읽기
-            photo_prop = p.get("사진", {})
-            photo_url = ""
-            if "rich_text" in photo_prop and photo_prop["rich_text"]:
-                # 첫 블록의 plain_text 사용
-                photo_url = photo_prop["rich_text"][0].get("plain_text", "") or \
-                            photo_prop["rich_text"][0].get("text", {}).get("content", "")
-
             # 고도(숫자)
             elev = p.get("고도", {}).get("number", 0) or 0
 
@@ -102,7 +101,6 @@ def get_notion_data() -> pd.DataFrame:
                     "date": pd.to_datetime(date_str).tz_localize(None),
                     "distance": float(dist_val or 0),
                     "duration_sec": parse_time_to_seconds(time_text),
-                    "photo": photo_url,
                     "elevation": elev,
                 })
         except:
@@ -110,7 +108,6 @@ def get_notion_data() -> pd.DataFrame:
 
     df = pd.DataFrame(records)
     if not df.empty:
-        # 러너+날짜+거리 기준 중복 제거
         df = df.drop_duplicates(subset=["runner", "date", "distance"], keep="first")
         df = df.sort_values("date", ascending=False)
     return df
@@ -123,14 +120,13 @@ def main():
         st.info("데이터를 불러오는 중입니다...")
         return
 
-    # 오늘 기준 주간 계산
+    # 오늘 기준 주간
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     mon = today - timedelta(days=today.weekday())
     sun = mon + timedelta(days=6, hours=23, minutes=59)
     last_mon = mon - timedelta(days=7)
     last_sun = mon - timedelta(seconds=1)
 
-    # 이번 주 / 지난 주 데이터
     this_week = df[(df["date"] >= mon) & (df["date"] <= sun)]
     last_week = df[(df["date"] >= last_mon) & (df["date"] <= last_sun)]
 
@@ -181,8 +177,7 @@ def main():
             status_text = "휴식필요 💤"
 
         with cols[idx]:
-            # 가장 최근 러닝의 사진 URL 사용
-            photo_url = m_all.iloc[0]["photo"] if not m_all.empty else ""
+            photo_url = PROFILE_IMAGES.get(member, "")
             img_tag = (
                 f'<img src="{photo_url}" class="profile-img">'
                 if photo_url else '👤'
