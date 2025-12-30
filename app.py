@@ -8,18 +8,38 @@ import re
 # 1. 페이지 설정
 st.set_page_config(page_title="러닝 크루 대시보드", page_icon="🏃", layout="wide")
 
-# 구글 드라이브 링크 변환 함수 (보안 링크 -> 직접 이미지 링크)
-def convert_google_drive_link(url):
-    if not url or not isinstance(url, str): return None
-    if 'drive.google.com' in url:
-        # 파일 ID 추출
-        match = re.search(r'd/([^/]+)', url)
-        if match:
-            file_id = match.group(1)
-            return f'https://drive.google.com/uc?id={file_id}'
-    return url
+# 2. 스타일 설정
+st.markdown("""
+    <style>
+    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .pace-text { font-size: 1rem; color: #555; font-weight: bold; margin: 5px 0; }
+    div[data-testid="stContainer"] { border: 1px solid #eee; border-radius: 10px; padding: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=600)
+# 구글 드라이브 주소 변환
+def convert_google_drive_link(url):
+    try:
+        if not url or not isinstance(url, str): return None
+        if 'drive.google.com' in url:
+            match = re.search(r'd/([^/]+)', url)
+            if match:
+                file_id = match.group(1)
+                return f'https://drive.google.com/uc?id={file_id}'
+        return url
+    except: return None
+
+# 시간 변환
+def parse_time_to_seconds(time_str):
+    if not time_str or time_str == "0": return 0
+    try:
+        parts = str(time_str).strip().split(':')
+        if len(parts) == 3: return int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+        elif len(parts) == 2: return int(parts[0])*60 + int(parts[1])
+        else: return int(parts[0]) if parts[0].isdigit() else 0
+    except: return 0
+
+@st.cache_data(ttl=300)
 def get_notion_data():
     NOTION_TOKEN = st.secrets.get("NOTION_TOKEN") or os.environ.get("NOTION_TOKEN")
     DATABASE_ID = st.secrets.get("DATABASE_ID") or os.environ.get("DATABASE_ID")
@@ -30,28 +50,30 @@ def get_notion_data():
         res = requests.post(url, headers=headers).json()
         pages = res.get("results", [])
     except Exception as e:
-        st.error(f"노션 연결 실패: {e}")
+        st.error(f"데이터 연결 중 오류가 발생했습니다: {e}")
         return pd.DataFrame()
 
     records = []
     for page in pages:
-        p = page["properties"]
         try:
+            p = page["properties"]
             name = p.get("러너", {}).get("select", {}).get("name", "")
-            # 거리 (수식/숫자 대응)
+            
+            # 거리 추출 (숫자 또는 수식)
             dist_prop = p.get("실제 거리", {})
             dist_val = dist_prop.get("number") if dist_prop.get("type") == "number" else dist_prop.get("formula", {}).get("number", 0)
-            date_str = p.get("날짜", {}).get("date", {}).get("start", "")
             
-            # --- 사진 링크 추출 로직 (텍스트 유형 집중 보강) ---
+            date_str = p.get("날짜", {}).get("date", {}).get("start", "")
+            time_rich = p.get("시간", {}).get("rich_text", [])
+            time_text = time_rich[0].get("text", {}).get("content", "0") if time_rich else "0"
+            elev = p.get("고도", {}).get("number", 0) or 0
+            
+            # 사진 추출 로직 (텍스트 컬럼 기준)
             photo_url = None
             photo_prop = p.get("사진", {})
-            
-            # 노션이 [텍스트] 유형일 때 데이터를 가져오는 가장 확실한 방법
             if photo_prop.get("type") == "rich_text":
                 texts = photo_prop.get("rich_text", [])
                 if texts:
-                    # plain_text와 content 두 가지 모두 시도
                     photo_url = texts[0].get("plain_text") or texts[0].get("text", {}).get("content", "")
             elif photo_prop.get("type") == "url":
                 photo_url = photo_prop.get("url")
@@ -61,41 +83,109 @@ def get_notion_data():
                     "runner": name,
                     "date": pd.to_datetime(date_str).tz_localize(None),
                     "distance": float(dist_val or 0),
-                    "photo": convert_google_drive_link(photo_url) # 여기서 구글 주소로 변환
+                    "duration_sec": parse_time_to_seconds(time_text),
+                    "elevation": elev,
+                    "photo": convert_google_drive_link(photo_url)
                 })
         except: continue
     
     return pd.DataFrame(records)
 
-# ... (이하 main 함수 렌더링 로직은 기존과 동일하되, 사진 출력 부분은 st.image 사용)
-
 def main():
     st.title("🏃 러닝 크루 대시보드")
     df = get_notion_data()
-    if df.empty: return
+    
+    if df.empty:
+        st.warning("노션에서 데이터를 가져오지 못했습니다. 설정(Secret)을 확인해주세요.")
+        return
 
-    # (상단 현황 섹션 생략 - 이전과 동일)
+    # 날짜 필터링
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    mon = today - timedelta(days=today.weekday())
+    this_week = df[df["date"] >= mon]
+    last_week = df[(df["date"] >= mon - timedelta(days=7)) & (df["date"] < mon)]
 
+    # 1. 크루 현황
+    st.header("📊 크루 현황")
+    tw_total = this_week["distance"].sum()
+    lw_total = last_week["distance"].sum()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("이번 주 크루 총합", f"{tw_total:.1f} km")
+    c2.metric("지난 주 크루 총합", f"{lw_total:.1f} km")
+    c3.metric("전주 대비 증감", f"{tw_total - lw_total:+.1f} km")
+
+    st.divider()
+
+    # 2. 크루 컨디션 체크
     st.header("💪 크루 컨디션 체크")
     crew_members = ["재탁", "유재", "주현", "용남"]
     cols = st.columns(len(crew_members))
 
     for idx, member in enumerate(crew_members):
         m_all = df[df["runner"] == member]
-        # 해당 러너의 기록 중 사진이 있는 가장 최근 행 찾기
+        m_this_dist = this_week[this_week["runner"] == member]["distance"].sum()
+        m_last_dist = last_week[last_week["runner"] == member]["distance"].sum()
+        
+        # 7일 평균 페이스
+        m_7d = m_all[m_all["date"] >= (datetime.now() - timedelta(days=7))]
+        pace_display = "0'0\""
+        if not m_7d.empty and m_7d["distance"].sum() > 0:
+            avg_sec = m_7d["duration_sec"].sum() / m_7d["distance"].sum()
+            pace_display = f"{int(avg_sec // 60)}'{int(avg_sec % 60)}\""
+
+        # 사진 찾기
         member_photo = None
         if not m_all.empty:
-            valid_photos = m_all[m_all['photo'].notna() & (m_all['photo'] != "")]
-            if not valid_photos.empty:
-                member_photo = valid_photos.iloc[0]['photo']
+            photo_recs = m_all[m_all['photo'].notna() & (m_all['photo'] != "")]
+            if not photo_recs.empty:
+                member_photo = photo_recs.iloc[0]['photo']
 
         with cols[idx]:
-            with st.container(border=True):
+            with st.container():
                 st.subheader(member)
+                # 사진 출력 (오류 방지 위해 try-except 적용)
                 if member_photo:
-                    # use_container_width로 카드 크기에 맞춤
-                    st.image(member_photo, use_container_width=True)
+                    try:
+                        st.image(member_photo, use_container_width=True)
+                    except:
+                        st.markdown("<h1 style='text-align:center;'>👤</h1>", unsafe_allow_html=True)
                 else:
                     st.markdown("<h1 style='text-align:center;'>👤</h1>", unsafe_allow_html=True)
                 
-                # (페이스 및 상태 정보 출력 로직 동일)
+                st.write(f"**이번 주:** {m_this_dist:.1f} km")
+                st.write(f"**지난 주:** {m_last_dist:.1f} km")
+                st.markdown(f"<p class='pace-text'>7일 평균 페이스: {pace_display}</p>", unsafe_allow_html=True)
+                
+                if not m_all.empty:
+                    rest_days = (today - m_all.iloc[0]["date"]).days
+                    st.write(f"**연속 휴식:** {rest_days}일째")
+                    if rest_days <= 1: st.success("상태: Good 🔥")
+                    elif rest_days <= 3: st.warning("상태: 주의 ⚠️")
+                    else: st.error("상태: 휴식필요 💤")
+
+    st.divider()
+
+    # 3. Insight & Fun (랭킹 섹션)
+    st.header("🏆 Insight & Fun")
+    if not this_week.empty:
+        i1, i2, i3 = st.columns(3)
+        with i1:
+            best_d = this_week.loc[this_week["distance"].idxmax()]
+            st.info(f"🏃 **이 주의 마라토너**\n\n**{best_d['runner']}** ({best_d['distance']:.1f}km)")
+        with i2:
+            best_e = this_week.loc[this_week["elevation"].idxmax()]
+            st.warning(f"⛰️ **이 주의 등산가**\n\n**{best_e['runner']}** ({best_e['elevation']:.0f}m)")
+        with i3:
+            this_week_calc = this_week.copy()
+            this_week_calc['tmp_pace'] = this_week_calc['duration_sec'] / this_week_calc['distance']
+            valid_p = this_week_calc[this_week_calc['tmp_pace'] > 0]
+            if not valid_p.empty:
+                best_p = valid_p.loc[valid_p['tmp_pace'].idxmin()]
+                st.success(f"⚡ **이 주의 폭주기관차**\n\n**{best_p['runner']}** ({int(best_p['tmp_pace']//60)}'{int(best_p['tmp_pace']%60)}\")")
+
+    if st.button("🔄 데이터 새로고침"):
+        st.cache_data.clear()
+        st.rerun()
+
+if __name__ == "__main__":
+    main()
