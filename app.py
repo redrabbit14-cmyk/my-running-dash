@@ -59,6 +59,11 @@ def parse_notion_data(results):
     
     st.write(f"파싱 시작: {len(results)}개 항목")
     
+    # 첫 번째 페이지의 컬럼 이름들을 확인
+    if results:
+        st.write("**노션 컬럼 이름들:**")
+        st.write(list(results[0]["properties"].keys()))
+    
     for page in results:
         props = page["properties"]
         
