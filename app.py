@@ -6,44 +6,51 @@ import pandas as pd
 from PIL import Image
 from io import BytesIO
 
-# 페이지 설정
+# 페이지 설정: 와이드 모드 유지
 st.set_page_config(
     page_title="러닝 크루 대시보드",
     page_icon="🏃",
     layout="wide"
 )
 
-# 환경 설정
+# [수정] CSS 추가: 사진 크기 고정 및 스크롤 최소화
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] { font-size: 1.8rem; }
+    .stImage > img { border-radius: 10px; object-fit: cover; height: 150px !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 환경 설정 (st.secrets 사용 권장)
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 DATABASE_ID = os.environ.get("DATABASE_ID")
 
-# Notion API 헤더
 headers = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
     "Content-Type": "application/json",
     "Notion-Version": "2022-06-28"
 }
 
-@st.cache_data(ttl=3600)
+def time_to_seconds(time_str):
+    """'MM:SS' 또는 'HH:MM:SS' 형태의 문자열을 초로 변환"""
+    try:
+        parts = list(map(int, time_str.split(':')))
+        if len(parts) == 3: return parts[0]*3600 + parts[1]*60 + parts[2]
+        if len(parts) == 2: return parts[0]*60 + parts[1]
+        return 0
+    except: return 0
+
+@st.cache_data(ttl=3600) # 1시간마다 갱신 (노션 URL 만료 대비)
 def fetch_notion_data():
-    """노션 데이터베이스에서 데이터 가져오기"""
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
-    
     all_results = []
     has_more = True
     start_cursor = None
     
     while has_more:
-        payload = {}
-        if start_cursor:
-            payload["start_cursor"] = start_cursor
-            
+        payload = {"start_cursor": start_cursor} if start_cursor else {}
         response = requests.post(url, headers=headers, json=payload)
-        
-        if response.status_code != 200:
-            st.error(f"노션 데이터 로드 실패: {response.status_code}")
-            st.error(f"에러 메시지: {response.text}")
-            return pd.DataFrame()
+        if response.status_code != 200: return pd.DataFrame()
         
         data = response.json()
         all_results.extend(data.get("results", []))
@@ -53,256 +60,110 @@ def fetch_notion_data():
     return parse_notion_data(all_results)
 
 def parse_notion_data(results):
-    """노션 데이터 파싱"""
     records = []
-    
-    for idx, page in enumerate(results):
+    for page in results:
         props = page["properties"]
-        
         try:
-            # 1. 이름 (유형 없음 = Title)
-            title_prop = props.get("이름", {}).get("title", [])
-            name = title_prop[0].get("text", {}).get("content", "") if title_prop else f"Run-{idx}"
+            # 1. 이름 & 러너
+            runner_name = props.get("러너", {}).get("select", {}).get("name", "Unknown")
             
-            # 2. 날짜 (유형 날짜)
+            # 2. 날짜
             date_obj = props.get("날짜", {}).get("date", {})
             date_str = date_obj.get("start", "") if date_obj else ""
             
-            # 3. 러너 (유형 선택) - select
-            runner_obj = props.get("러너", {}).get("select", {})
-            runner_name = runner_obj.get("name", "") if runner_obj else ""
+            # 3. 거리 (수식 또는 숫자)
+            dist_prop = props.get("실제 거리", {})
+            distance = dist_prop.get("formula", {}).get("number") if dist_prop.get("type") == "formula" else dist_prop.get("number")
             
-            # 4. 실제 거리 (유형 수식)
-            distance_prop = props.get("실제 거리", {})
-            if distance_prop.get("type") == "formula":
-                distance = distance_prop.get("formula", {}).get("number")
-            else:
-                distance = distance_prop.get("number")
-            
-            # 5. 페이스 (유형 숫자)
-            pace = props.get("페이스", {}).get("number", 0)
-            
-            # 6. 거리 (유형 숫자)
-            distance_manual = props.get("거리", {}).get("number", 0)
-            
-            # 7. 시간 (유형 텍스트)
+            # 4. 시간 (페이스 계산용)
             time_prop = props.get("시간", {}).get("rich_text", [])
             time_text = time_prop[0].get("text", {}).get("content", "0") if time_prop else "0"
+            duration_sec = time_to_seconds(time_text)
             
-            # 8. 고도 (유형 숫자)
-            elevation = props.get("고도", {}).get("number", 0)
-            
-            # 10. 사진 (유형 파일과 미디어)
+            # 5. 사진 URL (유형 체크)
             files = props.get("사진", {}).get("files", [])
             photo_url = ""
             if files:
-                file_obj = files[0]
-                if file_obj.get("type") == "file":
-                    photo_url = file_obj.get("file", {}).get("url", "")
-                elif file_obj.get("type") == "external":
-                    photo_url = file_obj.get("external", {}).get("url", "")
-            
-            # 실제 거리가 있고 날짜가 있으면 레코드 추가
+                f = files[0]
+                photo_url = f.get("file", {}).get("url") if f.get("type") == "file" else f.get("external", {}).get("url")
+
             if date_str and distance:
                 records.append({
-                    "name": name,
                     "date": date_str,
                     "runner": runner_name,
-                    "distance": distance,
-                    "pace": pace if pace else 0,
-                    "elevation": elevation if elevation else 0,
-                    "time": time_text,
+                    "distance": float(distance),
+                    "duration_sec": duration_sec,
+                    "elevation": props.get("고도", {}).get("number", 0) or 0,
                     "photo_url": photo_url
                 })
-        except Exception as e:
-            st.warning(f"파싱 에러 (항목 {idx}): {str(e)}")
-            continue
+        except: continue
     
     df = pd.DataFrame(records)
-    
-    if df.empty:
-        return df
-    
-    # 날짜를 datetime으로 변환
-    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
-    
-    # 중복 제거
-    df = df.drop_duplicates(subset=["name", "date", "distance"], keep="first")
-    
-    return df.sort_values("date", ascending=False).reset_index(drop=True)
-
-def get_week_range(date):
-    """주어진 날짜가 속한 주의 월요일과 일요일 반환"""
-    weekday = date.weekday()
-    monday = date - timedelta(days=weekday)
-    sunday = monday + timedelta(days=6)
-    # 시간 정보를 00:00:00으로 설정하고 timezone 제거
-    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
-    sunday = sunday.replace(hour=23, minute=59, second=59, microsecond=999999)
-    return monday, sunday
-
-def filter_by_week(df, week_offset=0):
-    """week_offset: 0=이번주, -1=지난주"""
-    today = datetime.now()
-    target_date = today + timedelta(weeks=week_offset)
-    monday, sunday = get_week_range(target_date)
-    
-    # 이미 get_week_range에서 pd.Timestamp로 변환되어 있음
-    return df[(df["date"] >= monday) & (df["date"] <= sunday)]
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
+    return df
 
 def main():
     st.title("🏃 러닝 크루 대시보드")
-    
-    # 데이터 로드
-    with st.spinner("데이터를 불러오는 중..."):
-        df = fetch_notion_data()
+    df = fetch_notion_data()
     
     if df.empty:
-        st.warning("데이터가 없습니다.")
+        st.warning("데이터를 불러오지 못했습니다. 노션 설정을 확인하세요.")
         return
-    
-    st.success(f"총 {len(df)}개의 러닝 기록을 불러왔습니다!")
-    
-    # 이번 주와 지난 주 데이터
-    this_week_df = filter_by_week(df, 0)
-    last_week_df = filter_by_week(df, -1)
-    
-    # ===== 상단: 크루 현황 =====
-    st.header("📊 크루 현황")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    # 이번 주 총 거리
-    this_week_total = this_week_df["distance"].sum()
-    
-    # 지난 주 총 거리
-    last_week_total = last_week_df["distance"].sum()
-    
-    # 전주 대비 증감률
-    if last_week_total > 0:
-        change_pct = ((this_week_total - last_week_total) / last_week_total) * 100
-    else:
-        change_pct = 0
-    
-    with col1:
-        st.metric("이번 주 총 거리", f"{this_week_total:.1f} km")
-    
-    with col2:
-        st.metric("지난 주 총 거리", f"{last_week_total:.1f} km")
-    
-    with col3:
-        st.metric("전주 대비", f"{change_pct:+.1f}%", delta=f"{this_week_total - last_week_total:.1f} km")
-    
-    st.divider()
-    
-    # ===== 중단: 크루 컨디션 =====
+
+    # 주간 데이터 필터링
+    today = datetime.now()
+    mon = (today - timedelta(days=today.weekday())).replace(hour=0,minute=0,second=0)
+    sun = mon + timedelta(days=6, hour=23, minute=59)
+    this_week_df = df[(df["date"] >= mon) & (df["date"] <= sun)]
+
+    # --- 중단: 크루 컨디션 (수정 포인트) ---
     st.header("💪 크루 컨디션")
-    
     crew_members = ["재탁", "유재", "주현", "용남"]
-    
-    # 4개의 컬럼 생성
-    cols = st.columns(4)
-    
+    cols = st.columns(len(crew_members))
+
     for idx, member in enumerate(crew_members):
         with cols[idx]:
-            # 해당 크루원의 전체 데이터에서 사진 가져오기
-            member_all_data = df[df["runner"] == member]
+            m_data = df[df["runner"] == member]
             
-            # 프로필 사진
-            photo_url = None
-            if not member_all_data.empty:
-                # 가장 최근 데이터에서 사진 찾기
-                for _, row in member_all_data.iterrows():
-                    if row["photo_url"]:
-                        photo_url = row["photo_url"]
-                        break
+            # 사진 표시 로직 보강
+            photo_shown = False
+            if not m_data.empty:
+                latest_photo = m_data.dropna(subset=['photo_url']).iloc[0]['photo_url'] if 'photo_url' in m_data.columns else None
+                if latest_photo:
+                    try:
+                        # [중요] 노션 URL 만료 이슈 해결을 위해 캐싱 활용 가능
+                        st.image(latest_photo, use_container_width=True)
+                        photo_shown = True
+                    except: pass
             
-            if photo_url:
-                try:
-                    response = requests.get(photo_url)
-                    img = Image.open(BytesIO(response.content))
-                    st.image(img, use_container_width=True)
-                except Exception as e:
-                    st.write(f"🏃 {member}")
-                    st.caption("사진 로드 실패")
-            else:
-                st.write(f"🏃 {member}")
+            if not photo_shown:
+                st.info(f"👤 {member}") # 사진 없을 시 대체 아이콘
+
+            st.subheader(member)
             
-            st.markdown(f"### {member}")
-            
-            # 해당 크루원의 이번 주/지난 주 데이터
-            member_this_week = this_week_df[this_week_df["runner"] == member]
-            member_last_week = last_week_df[last_week_df["runner"] == member]
-            
-            # 이번 주 누계
-            this_week_distance = member_this_week["distance"].sum()
-            st.metric("이번 주", f"{this_week_distance:.1f} km")
-            
-            # 지난 주 누계
-            last_week_distance = member_last_week["distance"].sum()
-            st.metric("지난 주", f"{last_week_distance:.1f} km")
-            
-            # 최근 7일 평균 페이스
+            # 이번 주 거리
+            m_this_week = this_week_df[this_week_df["runner"] == member]
+            dist_val = m_this_week["distance"].sum()
+            st.metric("이번 주", f"{dist_val:.1f} km")
+
+            # [해결 3] 최근 7일 평균 페이스 계산 수정
             seven_days_ago = datetime.now() - timedelta(days=7)
-            recent_7days = df[(df["runner"] == member) & (df["date"] >= seven_days_ago)]
+            recent_7d = m_data[m_data["date"] >= shadow_days_ago]
             
-            if not recent_7days.empty and recent_7days["pace"].sum() > 0:
-                avg_pace = recent_7days["pace"].mean()
-                st.metric("평균 페이스", f"{avg_pace:.1f} 분/km")
+            if not recent_7d.empty and recent_7d["distance"].sum() > 0:
+                total_dist = recent_7d["distance"].sum()
+                total_sec = recent_7d["duration_sec"].sum()
+                # 페이스 계산: 초/km -> MM:SS 변환
+                avg_pace_sec = total_sec / total_dist
+                minutes = int(avg_pace_sec // 60)
+                seconds = int(avg_pace_sec % 60)
+                st.metric("7일 평균 페이스", f"{minutes}'{seconds}\"")
             else:
-                st.metric("평균 페이스", "기록 없음")
-    
-    st.divider()
-    
-    # ===== 하단: Insight & Fun =====
-    st.header("🏆 Insight & Fun")
-    
-    # 디버깅: 이번 주 데이터 확인
-    st.write(f"이번 주 데이터: {len(this_week_df)}개")
-    
-    if not this_week_df.empty:
-        col1, col2, col3 = st.columns(3)
-        
-        # 1. 이 주의 마라토너 (가장 긴 거리)
-        with col1:
-            st.subheader("🏃 이 주의 마라토너")
-            longest_run = this_week_df.loc[this_week_df["distance"].idxmax()]
-            st.markdown(f"""
-            **{longest_run['runner']}**  
-            {longest_run['distance']:.2f} km  
-            {longest_run['date'].strftime('%Y-%m-%d')}
-            """)
-        
-        # 2. 이 주의 등산가 (가장 높은 고도)
-        with col2:
-            st.subheader("⛰️ 이 주의 등산가")
-            highest_elevation = this_week_df.loc[this_week_df["elevation"].idxmax()]
-            st.markdown(f"""
-            **{highest_elevation['runner']}**  
-            {highest_elevation['elevation']:.0f} m  
-            {highest_elevation['date'].strftime('%Y-%m-%d')}
-            """)
-        
-        # 3. 이 주의 폭주기관차 (가장 빠른 페이스)
-        with col3:
-            st.subheader("⚡ 이 주의 폭주기관차")
-            # pace가 0보다 큰 것만 필터링
-            valid_pace_df = this_week_df[this_week_df["pace"] > 0]
-            if not valid_pace_df.empty:
-                fastest_pace = valid_pace_df.loc[valid_pace_df["pace"].idxmin()]
-                st.markdown(f"""
-                **{fastest_pace['runner']}**  
-                {fastest_pace['pace']:.2f} 분/km  
-                {fastest_pace['date'].strftime('%Y-%m-%d')}
-                """)
-            else:
-                st.info("페이스 기록이 없습니다.")
-    else:
-        st.info(f"이번 주 데이터가 없습니다. (이번 주: {get_week_range(datetime.now())[0].strftime('%Y-%m-%d')} ~ {get_week_range(datetime.now())[1].strftime('%Y-%m-%d')})")
-    
-    # 데이터 새로고침 버튼
-    st.divider()
-    if st.button("🔄 데이터 새로고침"):
+                st.metric("7일 평균 페이스", "-")
+
+    # --- 하단: Insight & 데이터 새로고침 ---
+    if st.button("🔄 데이터 새로고침 (사진이 안 나올 때 클릭)"):
         st.cache_data.clear()
         st.rerun()
 
